@@ -312,6 +312,7 @@ LiveTennisDesklet.prototype = {
             style: "max-height: " + (this.maxHeight || 720) + "px;"
         });
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
+        scroll.overlay_scrollbars = true;
 
         let inner = new St.BoxLayout({ vertical: true });
         let any = false;
@@ -406,8 +407,7 @@ LiveTennisDesklet.prototype = {
         let box = new St.BoxLayout({
             vertical: true,
             style_class: "lt-match",
-            reactive: true,
-            track_hover: true
+            reactive: true
         });
 
         let metaBits = [];
