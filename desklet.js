@@ -22,6 +22,8 @@ const ESPN_URL = "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=
 const ESPN_PAGE = "https://www.espn.com/tennis/scoreboard";
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
+const SET_COL_PX = 52;
+const SCORE_FIT_BASE_PX = 360;
 
 Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
 
@@ -293,12 +295,34 @@ LiveTennisDesklet.prototype = {
         return { live: live, finished: finished, upcoming: upcoming };
     },
 
+    _maxSetColumns: function (matches) {
+        let n = 0;
+        for (let i = 0; i < matches.length; i++) {
+            let teams = matches[i].teams || [];
+            for (let t = 0; t < teams.length; t++) {
+                let cols = (teams[t].linescores || []).length;
+                if (cols > n) {
+                    n = cols;
+                }
+            }
+        }
+        return n;
+    },
+
+    _fittedWidth: function (setCols) {
+        let needed = SCORE_FIT_BASE_PX + Math.max(setCols, 1) * SET_COL_PX;
+        return Math.max(this.deskletWidth || 420, needed);
+    },
+
     _render: function () {
         if (!this._root) {
             return;
         }
         this._root.destroy_all_children();
-        this._root.style = "width: " + (this.deskletWidth || 420) + "px;";
+
+        let groups = this._selectedMatches();
+        let visible = groups.live.concat(groups.finished, groups.upcoming);
+        this._root.style = "width: " + this._fittedWidth(this._maxSetColumns(visible)) + "px;";
 
         this._root.add_child(this._buildHeader());
 
@@ -307,7 +331,6 @@ LiveTennisDesklet.prototype = {
             return;
         }
 
-        let groups = this._selectedMatches();
         let scroll = new St.ScrollView({
             style: "max-height: " + (this.maxHeight || 720) + "px;"
         });
@@ -477,6 +500,11 @@ LiveTennisDesklet.prototype = {
             row.add_child(this._label(team.country, "lt-country"));
         }
 
+        let scoreBox = new St.BoxLayout({
+            vertical: false,
+            style_class: "lt-score-box",
+            x_expand: false
+        });
         if (maxSets > 0 && team.linescores && team.linescores.length) {
             for (let i = 0; i < maxSets; i++) {
                 let ls = team.linescores[i];
@@ -491,11 +519,12 @@ LiveTennisDesklet.prototype = {
                         cls += " lt-set-win";
                     }
                 }
-                row.add_child(this._label(text, cls, false, true));
+                scoreBox.add_child(this._label(text, cls, false, true));
             }
         } else if (team.score) {
-            row.add_child(this._label(team.score, "lt-score-line"));
+            scoreBox.add_child(this._label(team.score, "lt-score-line", false, true));
         }
+        row.add_child(scoreBox);
         return row;
     },
 

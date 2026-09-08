@@ -98,10 +98,10 @@
         "type": "scale",
         "default": 420,
         "min": 280,
-        "max": 640,
+        "max": 800,
         "step": 10,
         "units": "px",
-        "description": "Width"
+        "description": "Minimum width (grows to fit scores)"
     },
     "max-height": {
         "type": "scale",
