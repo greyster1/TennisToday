@@ -1,8 +1,19 @@
 # TennisToday
 
-A [Cinnamon](https://github.com/linuxmint/Cinnamon) desklet that shows live ATP and WTA tennis scores on your Linux desktop.
+A [Cinnamon](https://github.com/linuxmint/Cinnamon) desklet that puts **Neeraj Jakhar**’s [live-tennis](https://github.com/homebackend/live-tennis) idea on the Linux Mint / Cinnamon desktop.
 
-It is built for **Cinnamon** (Linux Mint and other Cinnamon desktops). Scores refresh automatically, live matches are listed first, and you can click a match to open it in the browser.
+Neeraj (GitHub: [slashblog](https://github.com/slashblog), org: [homebackend](https://github.com/homebackend)) already built this for other platforms as **Live Tennis Monitor**:
+
+- a [GNOME Shell extension](https://extensions.gnome.org/extension/8674/live-tennis-monitor/) (GNOME 45+)
+- an Electron desktop app for Linux and Windows
+- an Android app
+
+Those clients show live ATP and WTA scores. TennisToday is the same idea for **Cinnamon desklets**, which his apps do not support. This repo is a Cinnamon-specific layer on top of that work (including tennis icons from his `live-tennis` assets), not a replacement for the GNOME extension or Electron app.
+
+Source: [github.com/homebackend/live-tennis](https://github.com/homebackend/live-tennis)  
+GNOME extension: [Live Tennis Monitor](https://extensions.gnome.org/extension/8674/live-tennis-monitor/)
+
+On Cinnamon, scores refresh automatically, live matches are listed first, and you can click a match to open it in the browser.
 
 ## Install
 
@@ -34,21 +45,6 @@ In **Configure…** you can turn ATP / WTA / doubles on or off, show recently fi
 ## Data
 
 Match data comes from ESPN’s public tennis scoreboard (ATP and WTA). This is not an official ATP Tour or WTA product.
-
-## Credits
-
-TennisToday is a Cinnamon desklet inspired by **Neeraj Jakhar**’s [live-tennis](https://github.com/homebackend/live-tennis) project.
-
-Neeraj (GitHub: [slashblog](https://github.com/slashblog), org: [homebackend](https://github.com/homebackend)) built **Live Tennis Monitor** for a different desktop stack:
-
-- a [GNOME Shell extension](https://extensions.gnome.org/extension/8674/live-tennis-monitor/) (GNOME 45+)
-- an Electron desktop app for Linux and Windows
-- an Android app
-
-Those clients talk to ATP Tour and WTA live-score APIs and show floating live-score windows. TennisToday is a separate implementation for **Cinnamon desklets**, not a port of that GNOME/Electron codebase. The tennis icons in this repo come from Neeraj’s `live-tennis` assets.
-
-Source: [github.com/homebackend/live-tennis](https://github.com/homebackend/live-tennis)  
-GNOME extension: [Live Tennis Monitor](https://extensions.gnome.org/extension/8674/live-tennis-monitor/)
 
 ## License
 
