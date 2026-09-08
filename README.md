@@ -50,4 +50,4 @@ Match data comes from ESPN’s public tennis scoreboard. This is not an official
 
 ## License
 
-[GPL-3.0-or-later](LICENSE), same family of license as Neeraj’s original project.
+[GPL-3.0-or-later](LICENSE)
