@@ -13,7 +13,7 @@ Those clients show live ATP and WTA scores. TennisToday is the same idea for **C
 Source: [github.com/homebackend/live-tennis](https://github.com/homebackend/live-tennis)  
 GNOME extension: [Live Tennis Monitor](https://extensions.gnome.org/extension/8674/live-tennis-monitor/)
 
-The data source is different. His apps talk to the official ATP Tour and WTA live-score APIs (and optionally Tennis Temple). TennisToday uses ESPN’s public tennis scoreboard for ATP and WTA, because those official ATP endpoints were not usable from this Cinnamon desklet. Scores, which matches appear, and how often they update can disagree with his app.
+This app uses ESPN, a free, different data source for live scores.
 
 On Cinnamon, scores refresh automatically, live matches are listed first, and you can click a match to open it in the browser.
 
@@ -46,7 +46,7 @@ In **Configure…** you can turn ATP / WTA / doubles on or off, show recently fi
 
 ## Data
 
-Match data comes from ESPN’s public tennis scoreboard (ATP and WTA), not from the ATP Tour or WTA APIs Neeraj’s apps use. This is not an official ATP Tour or WTA product.
+Match data comes from ESPN’s public tennis scoreboard. This is not an official ATP Tour or WTA product.
 
 ## License
 
