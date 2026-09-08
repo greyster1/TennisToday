@@ -29,7 +29,7 @@ cp -a TennisToday ~/.local/share/cinnamon/desklets/live-tennis@homebackend
 
 Then either:
 
-- open **System Settings → Desklets → Installed**, enable **Live Tennis**, or
+- open **System Settings → Desklets → Installed**, enable **Tennis Today**, or
 - log out and back in, then add it from Desklets
 
 Once it is on the desktop, drag it where you want it. Desklets sit on the wallpaper, so they are behind open windows — use show-desktop (`Super+D`) if you cannot see it.

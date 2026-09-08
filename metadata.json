@@ -1,6 +1,6 @@
 {
     "uuid": "live-tennis@homebackend",
-    "name": "Live Tennis",
+    "name": "Tennis Today",
     "description": "Live ATP and WTA tennis scores on the desktop. Inspired by homebackend/live-tennis.",
     "version": "1.0.0",
     "prevent-decorations": true,

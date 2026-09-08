@@ -1,4 +1,4 @@
-// Live Tennis desklet — live-tennis@homebackend
+// Tennis Today desklet — live-tennis@homebackend
 // Desktop scores for ATP and WTA. Inspired by https://github.com/homebackend/live-tennis
 //
 // Copyright (C) 2026 Graham Ferguson
@@ -166,7 +166,7 @@ LiveTennisDesklet.prototype = {
         this._initHttp();
         this._bindSettings(deskletId);
         this._buildChrome();
-        this.setHeader(_("Live Tennis"));
+        this.setHeader(_("Tennis Today"));
         this._populateContextMenu();
         this._render();
         this._fetch();
@@ -351,7 +351,7 @@ LiveTennisDesklet.prototype = {
         });
 
         let titleBox = new St.BoxLayout({ vertical: true, x_expand: true });
-        titleBox.add_child(this._label(_("Live Tennis"), "lt-title"));
+        titleBox.add_child(this._label(_("Tennis Today"), "lt-title"));
         let stamp = this._fetching
             ? _("Updating…")
             : (this._updatedAt ? _("Updated %s").format(this._updatedAt) : _("Waiting for scores"));
