@@ -22,8 +22,8 @@ const ESPN_URL = "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=
 const ESPN_PAGE = "https://www.espn.com/tennis/scoreboard";
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
-const SET_COL_PX = 52;
-const SCORE_FIT_BASE_PX = 360;
+const SET_COL_PX = 22;
+const SCORE_FIT_BASE_PX = 400;
 
 Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
 
@@ -503,7 +503,8 @@ LiveTennisDesklet.prototype = {
         let scoreBox = new St.BoxLayout({
             vertical: false,
             style_class: "lt-score-box",
-            x_expand: false
+            x_expand: false,
+            style: "spacing: 2px;"
         });
         if (maxSets > 0 && team.linescores && team.linescores.length) {
             for (let i = 0; i < maxSets; i++) {
