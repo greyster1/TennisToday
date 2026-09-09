@@ -341,8 +341,8 @@ TennisTodayDesklet.prototype = {
         } else {
             this._httpSession = new Soup.Session();
         }
-        this._httpSession.timeout = 20;
-        this._httpSession.idle_timeout = 20;
+        this._httpSession.timeout = 60;
+        this._httpSession.idle_timeout = 60;
     },
 
     _bindSettings: function (deskletId) {
@@ -808,11 +808,18 @@ TennisTodayDesklet.prototype = {
         let message = Soup.Message.new("GET", url);
         try {
             if (useUa) {
-                message.request_headers.append("User-Agent", USER_AGENT);
+                message.request_headers.replace("User-Agent", USER_AGENT);
+            } else {
+                // site.api.espn.com scoreboard returns 403 for browser/libsoup UAs
+                message.request_headers.replace("User-Agent", "curl/8.5.0");
             }
             message.request_headers.append("Accept", "application/json");
         } catch (e) {
-            global.logError(UUID + " header error: " + e);
+            try {
+                message.request_headers.append("User-Agent", useUa ? USER_AGENT : "curl/8.5.0");
+            } catch (e2) {
+                global.logError(UUID + " header error: " + e2);
+            }
         }
         if (IS_SOUP_2) {
             this._httpSession.queue_message(message, (session, msg) => {
