@@ -884,10 +884,15 @@ TennisTodayDesklet.prototype = {
         this._fetching = false;
         try {
             let header = this._bufHeader ? parseEspnHeader(this._bufHeader) : [];
-            let live = this._bufLive || [];
+            let live = [];
             let seen = {};
-            for (let i = 0; i < live.length; i++) {
-                seen[_matchKey(live[i])] = true;
+            let rawLive = this._bufLive || [];
+            for (let i = 0; i < rawLive.length; i++) {
+                let key = _matchKey(rawLive[i]);
+                if (!seen[key]) {
+                    seen[key] = true;
+                    live.push(rawLive[i]);
+                }
             }
             let rest = [];
             for (let j = 0; j < header.length; j++) {
