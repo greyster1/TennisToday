@@ -99,7 +99,9 @@ function _parseEvent(event, tour) {
     });
 
     let eventType = ctype.text || "";
-    let isDoubles = teams.some(function (t) { return t.isDoubles; })
+    let isDoubles = teams.some(function (t) {
+            return t.isDoubles || (t.name && t.name.indexOf(" / ") !== -1);
+        })
         || /doubles/i.test(eventType)
         || /doubles/i.test(ctype.slug || "");
 

@@ -57,7 +57,7 @@
     "show-doubles": {
         "type": "switch",
         "default": true,
-        "description": "Include doubles"
+        "description": "Show doubles"
     },
     "refresh-seconds": {
         "type": "spinbutton",
