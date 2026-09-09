@@ -202,8 +202,18 @@ function parseEspnScoreboardLive(json, tour) {
         for (let i = 0; i < comps.length; i++) {
             let c = comps[i];
             let st = (c.status && c.status.type) || {};
-            if (st.state !== "in") {
+            if (st.state !== "in" && st.state !== "post") {
                 continue;
+            }
+            let start = c.date || c.startDate || "";
+            let startMs = start ? Date.parse(start) : NaN;
+            if (st.state === "post") {
+                let day = _etYmd(startMs);
+                let todayEt = _etYmd(Date.now());
+                let yesterdayEt = _etYmd(Date.now() - 24 * 3600 * 1000);
+                if (day !== todayEt && day !== yesterdayEt) {
+                    continue;
+                }
             }
             let competitors = (c.competitors || []).slice();
             competitors.sort(function (a, b) {
@@ -253,7 +263,6 @@ function parseEspnScoreboardLive(json, tour) {
             }
             let tournamentName = event.name || event.shortName || "";
             let slam = _isGrandSlam(tournamentName);
-            let start = c.date || c.startDate || "";
             let link = "";
             if (event.links && event.links.length) {
                 link = event.links[0].href || "";
@@ -268,8 +277,8 @@ function parseEspnScoreboardLive(json, tour) {
                 roundName: roundName,
                 courtName: courtName,
                 eventType: eventType,
-                status: "Live",
-                statusCode: "in",
+                status: st.state === "in" ? "Live" : "Finished",
+                statusCode: st.state || "",
                 summary: (st.detail || st.shortDetail || st.description || "").toString(),
                 leadText: notes.length ? (notes[0].text || "") : "",
                 teams: teams,
@@ -277,8 +286,8 @@ function parseEspnScoreboardLive(json, tour) {
                 recent: true,
                 link: link,
                 start: start,
-                startMs: start ? Date.parse(start) : NaN,
-                isToday: true
+                startMs: startMs,
+                isToday: _etYmd(startMs) === _etYmd(Date.now())
             });
         }
         let kids = node.groupings || [];
@@ -481,6 +490,21 @@ TennisTodayDesklet.prototype = {
                 upcoming.push(m);
             }
         }
+
+        finished.sort(function (a, b) {
+            let am = a.startMs;
+            let bm = b.startMs;
+            if (isNaN(am) && isNaN(bm)) {
+                return 0;
+            }
+            if (isNaN(am)) {
+                return 1;
+            }
+            if (isNaN(bm)) {
+                return -1;
+            }
+            return bm - am;
+        });
 
         upcoming.sort(function (a, b) {
             let am = a.startMs;
