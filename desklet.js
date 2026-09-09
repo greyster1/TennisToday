@@ -405,6 +405,15 @@ LiveTennisDesklet.prototype = {
         });
         refresh.connect("clicked", () => this._fetch());
         header.add_child(refresh);
+
+        let settingsBtn = new St.Button({ style_class: "lt-refresh-button" });
+        settingsBtn.set_child(new St.Icon({
+            icon_name: "preferences-system-symbolic",
+            icon_size: 16,
+            style_class: "lt-header-icon"
+        }));
+        settingsBtn.connect("clicked", () => this.configureDesklet());
+        header.add_child(settingsBtn);
         return header;
     },
 

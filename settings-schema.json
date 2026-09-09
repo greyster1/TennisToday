@@ -5,12 +5,12 @@
         "page-tours": {
             "type": "page",
             "title": "Tours",
-            "sections": ["section-tours", "section-refresh"]
+            "sections": ["section-tours", "section-refresh", "section-version"]
         },
         "page-display": {
             "type": "page",
             "title": "Display",
-            "sections": ["section-matches", "section-layout"]
+            "sections": ["section-matches", "section-layout", "section-version"]
         },
         "section-tours": {
             "type": "section",
@@ -31,7 +31,17 @@
             "type": "section",
             "title": "Layout",
             "keys": ["desklet-width", "max-height"]
+        },
+        "section-version": {
+            "type": "section",
+            "title": " ",
+            "keys": ["app-version"]
         }
+    },
+
+    "app-version": {
+        "type": "label",
+        "description": "v1.0.3"
     },
 
     "enable-atp": {
