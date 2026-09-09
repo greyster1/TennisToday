@@ -202,6 +202,37 @@ function _countryFromLogo(url) {
     return m ? m[1].toUpperCase() : "";
 }
 
+function _noteParts(c) {
+    let notes = (c && c.notes) || [];
+    let typeText = (notes[0] && notes[0].type) || "";
+    let dash = typeText.indexOf(" - ");
+    if (dash >= 0) {
+        return {
+            roundName: typeText.substring(0, dash),
+            courtName: typeText.substring(dash + 3)
+        };
+    }
+    return { roundName: typeText, courtName: "" };
+}
+
+function _courtFromComp(c) {
+    let court = (c && c.court) || {};
+    let name = court.description || court.name || court.displayName || "";
+    if (name) {
+        return name;
+    }
+    return _noteParts(c).courtName;
+}
+
+function _roundFromComp(c) {
+    let round = (c && c.round) || {};
+    let name = round.displayName || round.description || "";
+    if (name) {
+        return name;
+    }
+    return _noteParts(c).roundName;
+}
+
 function _parseEvent(event, tour) {
     let notes = event.notes || [];
     let roundName = "";
@@ -973,8 +1004,8 @@ TennisTodayDesklet.prototype = {
             badge: slam ? "Grand Slam" : (stub.league === "wta" ? "WTA" : "ATP"),
             tournament: tournament,
             location: location,
-            roundName: (c.round && (c.round.displayName || c.round.description)) || "",
-            courtName: (c.court && (c.court.name || c.court.displayName)) || "",
+            roundName: _roundFromComp(c),
+            courtName: _courtFromComp(c),
             eventType: eventType,
             status: status,
             statusCode: status === "Upcoming" ? "pre" : "",
@@ -1362,8 +1393,8 @@ TennisTodayDesklet.prototype = {
                 badge: slam ? "Grand Slam" : (stub.league === "wta" ? "WTA" : "ATP"),
                 tournament: tournament,
                 location: location,
-                roundName: (c.round && (c.round.displayName || c.round.description)) || "",
-                courtName: (c.court && (c.court.name || c.court.displayName)) || "",
+                roundName: _roundFromComp(c),
+                courtName: _courtFromComp(c),
                 eventType: eventType,
                 status: state === "in" ? "Live" : "Finished",
                 statusCode: state,
