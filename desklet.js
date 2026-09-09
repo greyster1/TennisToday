@@ -24,6 +24,8 @@ const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, l
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
 const SET_COL_PX = 22;
 const SCORE_FIT_BASE_PX = 400;
+const CHROME_PX = 36;
+const SCORE_GUTTER_PX = 16;
 
 Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
 
@@ -235,7 +237,14 @@ LiveTennisDesklet.prototype = {
             vertical: true,
             style_class: "lt-desklet"
         });
+        this._root.clip_to_allocation = false;
         this.setContent(this._root);
+        if (this.content) {
+            this.content.clip_to_allocation = false;
+        }
+        if (this.actor) {
+            this.actor.clip_to_allocation = false;
+        }
     },
 
     _label: function (text, styleClass, wrap, noEllipsize) {
@@ -310,7 +319,7 @@ LiveTennisDesklet.prototype = {
     },
 
     _fittedWidth: function (setCols) {
-        let needed = SCORE_FIT_BASE_PX + Math.max(setCols, 1) * SET_COL_PX;
+        let needed = SCORE_FIT_BASE_PX + Math.max(setCols, 1) * SET_COL_PX + CHROME_PX;
         return Math.max(this.deskletWidth || 420, needed);
     },
 
@@ -322,7 +331,9 @@ LiveTennisDesklet.prototype = {
 
         let groups = this._selectedMatches();
         let visible = groups.live.concat(groups.finished, groups.upcoming);
-        this._root.style = "width: " + this._fittedWidth(this._maxSetColumns(visible)) + "px;";
+        let widthPx = this._fittedWidth(this._maxSetColumns(visible));
+        this._root.style = "min-width: " + widthPx + "px; width: " + widthPx + "px;";
+        this._root.clip_to_allocation = false;
 
         this._root.add_child(this._buildHeader());
 
@@ -332,12 +343,18 @@ LiveTennisDesklet.prototype = {
         }
 
         let scroll = new St.ScrollView({
-            style: "max-height: " + (this.maxHeight || 720) + "px;"
+            style: "max-height: " + (this.maxHeight || 720) + "px;",
+            x_expand: true
         });
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
         scroll.overlay_scrollbars = true;
+        scroll.clip_to_allocation = false;
 
-        let inner = new St.BoxLayout({ vertical: true });
+        let inner = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            style: "padding-right: " + SCORE_GUTTER_PX + "px;"
+        });
         let any = false;
 
         if (groups.live.length) {
@@ -526,6 +543,10 @@ LiveTennisDesklet.prototype = {
             scoreBox.add_child(this._label(team.score, "lt-score-line", false, true));
         }
         row.add_child(scoreBox);
+        row.add_child(new St.Bin({
+            width: SCORE_GUTTER_PX,
+            x_expand: false
+        }));
         return row;
     },
 

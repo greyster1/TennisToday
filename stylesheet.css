@@ -2,7 +2,7 @@
     background-color: rgba(18, 22, 20, 0.92);
     border: 1px solid rgba(120, 180, 90, 0.28);
     border-radius: 10px;
-    padding: 10px 12px 8px 12px;
+    padding: 10px 20px 8px 12px;
     color: #e8efe4;
 }
 
@@ -142,9 +142,7 @@
     color: #e8efe4;
     font-size: 10pt;
     font-weight: bold;
-    min-width: 16px;
     padding: 0 1px;
-    text-align: right;
 }
 
 .lt-set-win {
