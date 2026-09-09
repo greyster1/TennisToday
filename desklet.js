@@ -6,7 +6,6 @@
 
 const Desklet = imports.ui.desklet;
 const St = imports.gi.St;
-const Clutter = imports.gi.Clutter;
 const Soup = imports.gi.Soup;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
@@ -618,9 +617,7 @@ TennisTodayDesklet.prototype = {
                 }
                 let cell = new St.Bin({
                     style_class: "lt-set-cell",
-                    x_expand: false,
-                    x_align: Clutter.ActorAlign.END,
-                    y_align: Clutter.ActorAlign.CENTER
+                    x_expand: false
                 });
                 cell.set_width(SET_COL_PX);
                 cell.set_child(this._label(text, cls, false, true, markup));
