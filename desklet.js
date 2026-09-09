@@ -71,6 +71,14 @@ function _httpsRef(ref) {
     return String(ref || "").replace(/^http:\/\//, "https://");
 }
 
+function _bustCache(url) {
+    let u = String(url || "");
+    if (!u || u.indexOf("_nocache=") !== -1) {
+        return u;
+    }
+    return u + (u.indexOf("?") >= 0 ? "&" : "?") + "_nocache=1";
+}
+
 function _eventIdFromRef(ref) {
     let m = String(ref || "").match(/\/events\/([^/?]+)/);
     return m ? m[1] : "";
@@ -90,6 +98,36 @@ function _pairKeyFromNames(names) {
     let keys = (names || []).map(_nameKey);
     keys.sort();
     return keys.join("|");
+}
+
+function _ordinalSet(period) {
+    let n = parseInt(period, 10);
+    if (!n || n < 1) {
+        return "";
+    }
+    let mod100 = n % 100;
+    let mod10 = n % 10;
+    let suf = "th";
+    if (mod100 !== 11 && mod10 === 1) {
+        suf = "st";
+    } else if (mod100 !== 12 && mod10 === 2) {
+        suf = "nd";
+    } else if (mod100 !== 13 && mod10 === 3) {
+        suf = "rd";
+    }
+    return n + suf + " Set";
+}
+
+function _liveSummary(detail, period) {
+    let setLabel = _ordinalSet(period);
+    if (setLabel) {
+        return setLabel;
+    }
+    let raw = String(detail || "");
+    if (!raw || /suspend|delay/i.test(raw)) {
+        return "";
+    }
+    return raw;
 }
 
 function _isGrandSlam(name) {
@@ -662,8 +700,9 @@ TennisTodayDesklet.prototype = {
             statusClass = "lt-status-finished";
         }
         let statusText = match.status;
-        if (match.status === "Live" && match.summary) {
-            statusText = _("LIVE") + " · " + match.summary;
+        if (match.status === "Live") {
+            let liveBit = _liveSummary(match.summary, maxSets);
+            statusText = liveBit ? (_("LIVE") + " · " + liveBit) : _("LIVE");
         } else if (match.status === "Upcoming" && match.summary) {
             statusText = match.summary;
         }
@@ -1056,6 +1095,13 @@ TennisTodayDesklet.prototype = {
                 };
             });
             let slam = _isGrandSlam(tournament);
+            let period = (statusObj && statusObj.period) || 0;
+            for (let t = 0; t < teams.length; t++) {
+                let nlines = (teams[t].linescores || []).length;
+                if (nlines > period) {
+                    period = nlines;
+                }
+            }
             done({
                 id: String(c.id || ""),
                 tour: stub.league === "wta" ? "WTA" : "ATP",
@@ -1068,12 +1114,22 @@ TennisTodayDesklet.prototype = {
                 eventType: eventType,
                 status: state === "in" ? "Live" : "Finished",
                 statusCode: state,
-                summary: (st.detail || st.shortDetail || st.description || "").toString(),
+                summary: _liveSummary(st.detail || st.shortDetail || st.description, period),
                 leadText: "",
                 teams: teams,
                 isDoubles: /doubles/i.test(slug) || /doubles/i.test(eventType),
                 recent: true,
-                link: (c.links && c.links[0] && c.links[0].href) || "",
+                link: (function () {
+                    let links = c.links || [];
+                    for (let i = 0; i < links.length; i++) {
+                        let rel = links[i].rel || [];
+                        let href = links[i].href || "";
+                        if (href.indexOf("http") === 0 && rel.indexOf("desktop") !== -1) {
+                            return href;
+                        }
+                    }
+                    return (links[0] && links[0].href) || "";
+                })(),
                 start: c.date || "",
                 startMs: c.date ? Date.parse(c.date) : NaN,
                 isToday: true
@@ -1098,6 +1154,9 @@ TennisTodayDesklet.prototype = {
     },
 
     _fetchJson: function (url, useUa, callback) {
+        if (url && url.indexOf("sports.core.api.espn.com") !== -1) {
+            url = _bustCache(url);
+        }
         let message = Soup.Message.new("GET", url);
         try {
             if (useUa) {
@@ -1106,6 +1165,9 @@ TennisTodayDesklet.prototype = {
                 message.request_headers.replace("User-Agent", "curl/8.5.0");
             }
             message.request_headers.append("Accept", "application/json");
+            if (url && url.indexOf("sports.core.api.espn.com") !== -1) {
+                message.request_headers.replace("Cache-Control", "no-cache");
+            }
         } catch (e) {
             try {
                 message.request_headers.append("User-Agent", useUa ? USER_AGENT : "curl/8.5.0");
