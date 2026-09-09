@@ -24,6 +24,8 @@ const ESPN_PAGE = "https://www.espn.com/tennis/scoreboard";
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
 const SET_COL_PX = 28;
+const POINTS_COL_PX = 36;
+const SERVE_COL_PX = 16;
 const SCORE_FIT_BASE_PX = 400;
 const CHROME_PX = 36;
 const SCORE_GUTTER_PX = 16;
@@ -82,6 +84,37 @@ function _bustCache(url) {
 function _eventIdFromRef(ref) {
     let m = String(ref || "").match(/\/events\/([^/?]+)/);
     return m ? m[1] : "";
+}
+
+function _athleteIdFromRef(ref) {
+    let m = String(ref || "").match(/\/athletes\/([^/?]+)/);
+    return m ? m[1] : "";
+}
+
+function _formatPoints(raw) {
+    if (raw === undefined || raw === null || raw === "") {
+        return "";
+    }
+    let s = String(raw).trim().toUpperCase();
+    if (s === "LOVE") {
+        return "0";
+    }
+    if (s === "A" || s === "AD" || s === "ADV" || s === "ADVANTAGE" || s === "50") {
+        return "AD";
+    }
+    if (s === "0" || s === "00") {
+        return "0";
+    }
+    if (s === "15" || s === "30" || s === "40") {
+        return s;
+    }
+    if (/^\d{1,2}$/.test(s)) {
+        let n = parseInt(s, 10);
+        if (n >= 0 && n <= 20) {
+            return String(n);
+        }
+    }
+    return "";
 }
 
 function _matchKey(m) {
@@ -185,6 +218,7 @@ function _parseEvent(event, tour) {
             seed: c.tournamentSeed || null,
             country: _countryFromLogo(c.logo),
             score: c.score || "",
+            points: _formatPoints(c.score),
             linescores: lines,
             serving: !!c.possession,
             winner: !!c.winner,
@@ -689,8 +723,12 @@ TennisTodayDesklet.prototype = {
             maxSets = Math.max(maxSets, (match.teams[i].linescores || []).length);
         }
 
+        let live = match.status === "Live";
+        let showPoints = live && match.teams.some(function (t) {
+            return !!t.points;
+        });
         for (let i = 0; i < match.teams.length; i++) {
-            box.add_child(this._buildTeamRow(match.teams[i], maxSets));
+            box.add_child(this._buildTeamRow(match.teams[i], maxSets, live, showPoints));
         }
 
         let statusClass = "lt-status-upcoming";
@@ -720,10 +758,32 @@ TennisTodayDesklet.prototype = {
         return box;
     },
 
-    _buildTeamRow: function (team, maxSets) {
+    _serveMarker: function (serving) {
+        let wrap = new St.Bin({
+            style_class: "lt-serve-wrap",
+            x_expand: false
+        });
+        wrap.set_width(SERVE_COL_PX);
+        if (serving) {
+            try {
+                let path = this.metadata.path + "/tennis-icon.png";
+                let gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(path) });
+                wrap.set_child(new St.Icon({
+                    gicon: gicon,
+                    icon_size: 12,
+                    style_class: "lt-serve-ball"
+                }));
+            } catch (e) {
+                wrap.set_child(this._label("●", "lt-serve", false, true));
+            }
+        }
+        return wrap;
+    },
+
+    _buildTeamRow: function (team, maxSets, live, showPoints) {
         let row = new St.BoxLayout({ vertical: false });
 
-        row.add_child(this._label(team.serving ? "●" : " ", "lt-serve", false, true));
+        row.add_child(this._serveMarker(!!(live && team.serving)));
 
         let name = team.name;
         let nameClass = team.winner ? "lt-player-winner" : "lt-player-name";
@@ -771,6 +831,16 @@ TennisTodayDesklet.prototype = {
             }
         } else if (team.score) {
             scoreBox.add_child(this._label(this._scoreLineMarkup(team.score), "lt-score-line", false, true, true));
+        }
+        if (showPoints) {
+            let pt = team.points || "";
+            let ptCell = new St.Bin({
+                style_class: "lt-points-cell",
+                x_expand: false
+            });
+            ptCell.set_width(POINTS_COL_PX);
+            ptCell.set_child(this._label(pt, "lt-points", false, true));
+            scoreBox.add_child(ptCell);
         }
         row.add_child(scoreBox);
         row.add_child(new St.Bin({
@@ -1058,8 +1128,9 @@ TennisTodayDesklet.prototype = {
         competitors.sort(function (a, b) {
             return (a.order || 0) - (b.order || 0);
         });
-        let pending = Math.max(1, competitors.length);
+        let pending = Math.max(1, competitors.length) + 1;
         let linesById = {};
+        let serverId = "";
         let finish = () => {
             pending -= 1;
             if (pending > 0) {
@@ -1088,8 +1159,9 @@ TennisTodayDesklet.prototype = {
                     seed: p.tournamentSeed || null,
                     country: "",
                     score: "",
+                    points: "",
                     linescores: lines,
-                    serving: false,
+                    serving: String(p.id) === String(serverId),
                     winner: !!p.winner,
                     isDoubles: p.type === "team" || /doubles/i.test(slug)
                 };
@@ -1135,6 +1207,13 @@ TennisTodayDesklet.prototype = {
                 isToday: true
             });
         };
+        let sitRef = c.situation && c.situation.$ref
+            ? _httpsRef(c.situation.$ref)
+            : ESPN_CORE + "/" + stub.league + "/events/" + stub.eventId + "/competitions/" + c.id + "/situation";
+        this._fetchJson(sitRef, false, (json) => {
+            serverId = _athleteIdFromRef(json && json.server && json.server.$ref);
+            finish();
+        });
         if (!competitors.length) {
             finish();
             return;
@@ -1211,7 +1290,7 @@ TennisTodayDesklet.prototype = {
             let teams = m.teams || [];
             for (let t = 0; t < teams.length; t++) {
                 let tm = teams[t];
-                parts.push(tm.name || "", tm.serving ? "1" : "0", tm.winner ? "1" : "0", tm.score || "");
+                parts.push(tm.name || "", tm.serving ? "1" : "0", tm.winner ? "1" : "0", tm.score || "", tm.points || "");
                 let lines = tm.linescores || [];
                 for (let k = 0; k < lines.length; k++) {
                     parts.push(String(lines[k].value), String(lines[k].tiebreak || ""));

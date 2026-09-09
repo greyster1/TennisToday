@@ -150,10 +150,36 @@
     padding-left: 4px;
 }
 
+.lt-serve-wrap {
+    width: 16px;
+    min-width: 16px;
+    padding: 0 8px 0 0;
+}
+
+.lt-serve-ball {
+    icon-size: 12px;
+}
+
 .lt-serve {
     color: #c6e86a;
     font-size: 11pt;
     padding: 0 8px 0 0;
+}
+
+.lt-points-cell {
+    width: 36px;
+    min-width: 36px;
+    margin-left: 8px;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background-color: rgba(201, 227, 138, 0.16);
+    border: 1px solid rgba(201, 227, 138, 0.45);
+}
+
+.lt-points {
+    color: #eaffb0;
+    font-size: 11pt;
+    font-weight: bold;
 }
 
 .lt-score-box {
