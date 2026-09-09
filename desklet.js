@@ -70,6 +70,17 @@ function _etCompact(ms) {
     return _etYmd(ms).replace(/-/g, "");
 }
 
+function _formatMatchTime(ms) {
+    if (ms === undefined || ms === null || isNaN(ms)) {
+        return "";
+    }
+    try {
+        return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    } catch (e) {
+        return "";
+    }
+}
+
 function _httpsRef(ref) {
     return String(ref || "").replace(/^http:\/\//, "https://");
 }
@@ -752,8 +763,8 @@ TennisTodayDesklet.prototype = {
         if (match.status === "Live") {
             let liveBit = _liveSummary(match.summary, maxSets);
             statusText = liveBit ? (_("LIVE") + " · " + liveBit) : _("LIVE");
-        } else if (match.status === "Upcoming" && match.summary) {
-            statusText = match.summary;
+        } else if (match.status === "Upcoming") {
+            statusText = _formatMatchTime(match.startMs) || match.summary || _("Upcoming");
         }
         box.add_child(this._label(statusText, statusClass));
 
