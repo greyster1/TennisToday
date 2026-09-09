@@ -19,8 +19,7 @@ const Gettext = imports.gettext;
 
 const UUID = "TennisToday@greyster1";
 const ESPN_URL = "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=tennis";
-const ESPN_ATP_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard";
-const ESPN_WTA_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard";
+const ESPN_CORE = "https://sports.core.api.espn.com/v2/sports/tennis/leagues";
 const ESPN_PAGE = "https://www.espn.com/tennis/scoreboard";
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
@@ -28,7 +27,6 @@ const SET_COL_PX = 28;
 const SCORE_FIT_BASE_PX = 400;
 const CHROME_PX = 36;
 const SCORE_GUTTER_PX = 16;
-const BOARD_INTERVAL_MS = 180000;
 const MAX_BOARD_FINISHED = 16;
 
 Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
@@ -65,10 +63,33 @@ function _etYmd(ms) {
     }
 }
 
+function _etCompact(ms) {
+    return _etYmd(ms).replace(/-/g, "");
+}
+
+function _httpsRef(ref) {
+    return String(ref || "").replace(/^http:\/\//, "https://");
+}
+
+function _eventIdFromRef(ref) {
+    let m = String(ref || "").match(/\/events\/([^/?]+)/);
+    return m ? m[1] : "";
+}
+
 function _matchKey(m) {
     let names = (m.teams || []).map(function (t) { return t.name || ""; });
     names.sort();
     return (m.tournament || "") + "::" + names.join("|");
+}
+
+function _nameKey(name) {
+    return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function _pairKeyFromNames(names) {
+    let keys = (names || []).map(_nameKey);
+    keys.sort();
+    return keys.join("|");
 }
 
 function _isGrandSlam(name) {
@@ -196,126 +217,6 @@ function parseEspnHeader(json) {
     return matches;
 }
 
-function parseEspnScoreboardLive(json, tour) {
-    let matches = [];
-    function walk(node, event) {
-        let groupingName = (node.grouping && node.grouping.displayName) || "";
-        let comps = node.competitions || [];
-        for (let i = 0; i < comps.length; i++) {
-            let c = comps[i];
-            let st = (c.status && c.status.type) || {};
-            if (st.state !== "in" && st.state !== "post") {
-                continue;
-            }
-            let start = c.date || c.startDate || "";
-            let startMs = start ? Date.parse(start) : NaN;
-            if (st.state === "post") {
-                let day = _etYmd(startMs);
-                let todayEt = _etYmd(Date.now());
-                let yesterdayEt = _etYmd(Date.now() - 24 * 3600 * 1000);
-                if (day !== todayEt && day !== yesterdayEt) {
-                    continue;
-                }
-            }
-            let competitors = (c.competitors || []).slice();
-            competitors.sort(function (a, b) {
-                return (a.order || 0) - (b.order || 0);
-            });
-            let teams = competitors.map(function (p) {
-                let ath = p.athlete || {};
-                let lines = (p.linescores || []).map(function (ls) {
-                    return {
-                        value: ls.setScore != null ? ls.setScore : ls.value,
-                        tiebreak: ls.tieBreakScore || ls.tiebreak || null,
-                        winner: !!ls.winner
-                    };
-                });
-                let rank = p.curatedRank || {};
-                return {
-                    name: ath.displayName || p.displayName || ath.shortName || p.abbreviation || "TBD",
-                    seed: p.tournamentSeed || rank.current || null,
-                    country: _countryFromLogo((ath.flag && ath.flag.href) || p.logo),
-                    score: p.score || "",
-                    linescores: lines,
-                    serving: !!p.possession,
-                    winner: !!p.winner,
-                    isDoubles: p.type === "team" || !p.athlete
-                };
-            });
-            let ctype = c.type || {};
-            let eventType = ctype.text || groupingName || "";
-            let isDoubles = teams.some(function (t) {
-                    return t.isDoubles || (t.name && t.name.indexOf(" / ") !== -1);
-                })
-                || /doubles/i.test(eventType)
-                || /doubles/i.test(ctype.slug || "");
-            let notes = c.notes || [];
-            let roundName = (c.round && c.round.displayName) || "";
-            let courtName = (c.venue && c.venue.court) || "";
-            if (notes.length && notes[0].type) {
-                let dash = String(notes[0].type).indexOf(" - ");
-                if (dash >= 0) {
-                    if (!roundName) {
-                        roundName = notes[0].type.substring(0, dash);
-                    }
-                    if (!courtName) {
-                        courtName = notes[0].type.substring(dash + 3);
-                    }
-                }
-            }
-            let tournamentName = event.name || event.shortName || "";
-            let slam = _isGrandSlam(tournamentName);
-            let link = "";
-            if (event.links && event.links.length) {
-                link = event.links[0].href || "";
-            }
-            matches.push({
-                id: String(c.id || c.uid || ""),
-                tour: String(tour || "").toUpperCase(),
-                isGrandSlam: slam,
-                badge: slam ? "Grand Slam" : String(tour || "").toUpperCase(),
-                tournament: tournamentName,
-                location: (c.venue && c.venue.fullName) || "",
-                roundName: roundName,
-                courtName: courtName,
-                eventType: eventType,
-                status: st.state === "in" ? "Live" : "Finished",
-                statusCode: st.state || "",
-                summary: (st.detail || st.shortDetail || st.description || "").toString(),
-                leadText: notes.length ? (notes[0].text || "") : "",
-                teams: teams,
-                isDoubles: isDoubles,
-                recent: true,
-                link: link,
-                start: start,
-                startMs: startMs,
-                isToday: _etYmd(startMs) === _etYmd(Date.now())
-            });
-        }
-        let kids = node.groupings || [];
-        for (let k = 0; k < kids.length; k++) {
-            walk(kids[k], event);
-        }
-    }
-    let events = (json && json.events) || [];
-    for (let e = 0; e < events.length; e++) {
-        walk(events[e], events[e]);
-    }
-    let live = [];
-    let finished = [];
-    for (let i = 0; i < matches.length; i++) {
-        if (matches[i].status === "Live") {
-            live.push(matches[i]);
-        } else {
-            finished.push(matches[i]);
-        }
-    }
-    finished.sort(function (a, b) {
-        return (b.startMs || 0) - (a.startMs || 0);
-    });
-    return live.concat(finished.slice(0, MAX_BOARD_FINISHED));
-}
-
 function TennisTodayDesklet(metadata, deskletId) {
     this._init(metadata, deskletId);
 }
@@ -373,12 +274,12 @@ TennisTodayDesklet.prototype = {
 
     _bindSettings: function (deskletId) {
         this.settings = new Settings.DeskletSettings(this, UUID, deskletId);
-        this.settings.bindProperty(Settings.BindingDirection.IN, "enable-atp", "enableAtp", this._onSettingsChanged, null);
-        this.settings.bindProperty(Settings.BindingDirection.IN, "enable-wta", "enableWta", this._onSettingsChanged, null);
-        this.settings.bindProperty(Settings.BindingDirection.IN, "enable-grand-slam", "enableGrandSlam", this._onSettingsChanged, null);
-        this.settings.bindProperty(Settings.BindingDirection.IN, "show-doubles", "showDoubles", this._onSettingsChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "enable-atp", "enableAtp", this._onToursChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "enable-wta", "enableWta", this._onToursChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "enable-grand-slam", "enableGrandSlam", this._onToursChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "show-doubles", "showDoubles", this._onToursChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "refresh-seconds", "refreshSeconds", this._onRefreshSettingChanged, null);
-        this.settings.bindProperty(Settings.BindingDirection.IN, "show-completed", "showCompleted", this._onSettingsChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "show-completed", "showCompleted", this._onToursChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "max-completed", "maxCompleted", this._onSettingsChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "show-upcoming", "showUpcoming", this._onSettingsChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "max-upcoming", "maxUpcoming", this._onSettingsChanged, null);
@@ -389,6 +290,13 @@ TennisTodayDesklet.prototype = {
 
     _onSettingsChanged: function () {
         this._render();
+    },
+
+    _onToursChanged: function () {
+        this._lastSnapshot = "";
+        this._boardCache = [];
+        this._render();
+        this._fetch();
     },
 
     _onRefreshSettingChanged: function () {
@@ -845,13 +753,356 @@ TennisTodayDesklet.prototype = {
         });
     },
 
+    _toggledLeagues: function () {
+        let leagues = [];
+        if (this.enableAtp || this.enableGrandSlam) {
+            leagues.push("atp");
+        }
+        if (this.enableWta || this.enableGrandSlam) {
+            leagues.push("wta");
+        }
+        return leagues;
+    },
+
+    _eventWanted: function (league, eventId, eventNames) {
+        let name = eventNames[eventId] || "";
+        if (league === "atp" && this.enableAtp) {
+            return true;
+        }
+        if (league === "wta" && this.enableWta) {
+            return true;
+        }
+        if (this.enableGrandSlam && (!name || _isGrandSlam(name))) {
+            return true;
+        }
+        return false;
+    },
+
+    _matchTourEnabled: function (league, tournament) {
+        if (_isGrandSlam(tournament) && this.enableGrandSlam) {
+            return true;
+        }
+        if (league === "wta") {
+            return !!this.enableWta;
+        }
+        return !!this.enableAtp;
+    },
+
+    _etDateList: function () {
+        let today = _etCompact(Date.now());
+        let yest = _etCompact(Date.now() - 24 * 3600 * 1000);
+        if (yest && yest !== today) {
+            return [yest, today];
+        }
+        return [today];
+    },
+
+    _fetchDatedBoard: function (headerMatches, done) {
+        let leagues = this._toggledLeagues();
+        if (!leagues.length) {
+            done([]);
+            return;
+        }
+        let locToName = {};
+        let eventNames = {};
+        for (let i = 0; i < (headerMatches || []).length; i++) {
+            let m = headerMatches[i];
+            if (m.location && m.tournament) {
+                locToName[m.location] = m.tournament;
+            }
+            if (m.id && m.tournament) {
+                eventNames[m.id] = m.tournament;
+            }
+        }
+        let dates = this._etDateList();
+        let listsLeft = leagues.length * dates.length;
+        let stubs = [];
+        let finishLists = () => {
+            listsLeft -= 1;
+            if (listsLeft > 0) {
+                return;
+            }
+            this._hydrateStubs(stubs, locToName, eventNames, headerMatches, done);
+        };
+        for (let l = 0; l < leagues.length; l++) {
+            for (let d = 0; d < dates.length; d++) {
+                let league = leagues[l];
+                let day = dates[d];
+                // Dated event lists are a few hundred bytes. Do not GET /events/{id}:
+                // that resource inlines the whole tournament (~1MB).
+                this._fetchJson(ESPN_CORE + "/" + league + "/events?dates=" + day + "&limit=20", false, (json) => {
+                    let items = (json && json.items) || [];
+                    let ids = [];
+                    let seen = {};
+                    for (let n = 0; n < items.length; n++) {
+                        let id = _eventIdFromRef(items[n].$ref || items[n]);
+                        if (!id || seen[id] || !this._eventWanted(league, id, eventNames)) {
+                            continue;
+                        }
+                        seen[id] = true;
+                        ids.push(id);
+                    }
+                    if (!ids.length) {
+                        finishLists();
+                        return;
+                    }
+                    listsLeft += ids.length;
+                    finishLists();
+                    for (let x = 0; x < ids.length; x++) {
+                        this._fetchJson(
+                            ESPN_CORE + "/" + league + "/events/" + ids[x] + "/competitions?dates=" + day + "&limit=50",
+                            false,
+                            (cjson) => {
+                                let comps = (cjson && cjson.items) || [];
+                                for (let c = 0; c < comps.length; c++) {
+                                    stubs.push({ league: league, eventId: ids[x], comp: comps[c] });
+                                }
+                                finishLists();
+                            }
+                        );
+                    }
+                });
+            }
+        }
+    },
+
+    _hydrateStubs: function (stubs, locToName, eventNames, headerMatches, done) {
+        let now = Date.now();
+        let headerByPair = {};
+        for (let h = 0; h < (headerMatches || []).length; h++) {
+            let m = headerMatches[h];
+            let names = (m.teams || []).map(function (t) { return t.name || ""; });
+            headerByPair[_pairKeyFromNames(names)] = m;
+        }
+        let wanted = [];
+        for (let i = 0; i < stubs.length; i++) {
+            let stub = stubs[i];
+            let c = stub.comp;
+            let slug = ((c.type && c.type.slug) || "") + " " + ((c.type && c.type.text) || "");
+            if (!this.showDoubles && /doubles/i.test(slug)) {
+                continue;
+            }
+            let tName = eventNames[stub.eventId] || "";
+            if (tName && !this._matchTourEnabled(stub.league, tName)) {
+                continue;
+            }
+            let startMs = c.date ? Date.parse(c.date) : NaN;
+            if (!isNaN(startMs) && startMs > now + 2 * 3600 * 1000) {
+                continue;
+            }
+            let names = (c.competitors || []).map(function (p) { return p.name || ""; });
+            let headerHit = headerByPair[_pairKeyFromNames(names)];
+            if (headerHit) {
+                if (headerHit.status === "Live" || headerHit.status === "Finished") {
+                    continue;
+                }
+                if (headerHit.status === "Upcoming" && (isNaN(startMs) || startMs > now)) {
+                    continue;
+                }
+            }
+            wanted.push(stub);
+        }
+        if (!wanted.length) {
+            done([]);
+            return;
+        }
+        let left = wanted.length;
+        let stated = [];
+        let finishStatus = () => {
+            left -= 1;
+            if (left > 0) {
+                return;
+            }
+            let live = [];
+            let finished = [];
+            for (let s = 0; s < stated.length; s++) {
+                if (stated[s].state === "in") {
+                    live.push(stated[s]);
+                } else if (stated[s].state === "post") {
+                    finished.push(stated[s]);
+                }
+            }
+            finished.sort(function (a, b) {
+                let am = a.stub.comp.date ? Date.parse(a.stub.comp.date) : 0;
+                let bm = b.stub.comp.date ? Date.parse(b.stub.comp.date) : 0;
+                return bm - am;
+            });
+            if (!this.showCompleted) {
+                finished = [];
+            } else if (finished.length > MAX_BOARD_FINISHED) {
+                finished = finished.slice(0, MAX_BOARD_FINISHED);
+            }
+            let keep = live.concat(finished);
+            if (!keep.length) {
+                done([]);
+                return;
+            }
+            this._hydrateScores(keep, locToName, eventNames, done);
+        };
+        for (let w = 0; w < wanted.length; w++) {
+            this._readStatus(wanted[w], (row) => {
+                if (row) {
+                    stated.push(row);
+                }
+                finishStatus();
+            });
+        }
+    },
+
+    _readStatus: function (stub, done) {
+        let c = stub.comp;
+        let statusRef = c.status && c.status.$ref ? _httpsRef(c.status.$ref) : "";
+        let apply = (statusObj) => {
+            let st = (statusObj && statusObj.type) || {};
+            let state = st.state || "";
+            if (!state) {
+                let winner = (c.competitors || []).some(function (p) { return p.winner; });
+                let startMs = c.date ? Date.parse(c.date) : NaN;
+                if (winner) {
+                    state = "post";
+                } else if (!isNaN(startMs) && startMs <= Date.now()) {
+                    state = "in";
+                } else {
+                    done(null);
+                    return;
+                }
+            }
+            if (state === "post" && st.completed === false) {
+                state = "in";
+            }
+            if (state === "pre") {
+                let startMs = c.date ? Date.parse(c.date) : NaN;
+                if (isNaN(startMs) || startMs > Date.now()) {
+                    done(null);
+                    return;
+                }
+                state = "in";
+            }
+            if (state !== "in" && state !== "post") {
+                done(null);
+                return;
+            }
+            done({ stub: stub, statusObj: statusObj, state: state });
+        };
+        if (!statusRef) {
+            apply(null);
+            return;
+        }
+        this._fetchJson(statusRef, false, apply);
+    },
+
+    _hydrateScores: function (rows, locToName, eventNames, done) {
+        let left = rows.length;
+        let out = [];
+        let finishOne = () => {
+            left -= 1;
+            if (left <= 0) {
+                done(out);
+            }
+        };
+        for (let i = 0; i < rows.length; i++) {
+            this._hydrateOne(rows[i], locToName, eventNames, (m) => {
+                if (m) {
+                    out.push(m);
+                }
+                finishOne();
+            });
+        }
+    },
+
+    _hydrateOne: function (row, locToName, eventNames, done) {
+        let stub = row.stub;
+        let c = stub.comp;
+        let statusObj = row.statusObj;
+        let state = row.state;
+        let competitors = (c.competitors || []).slice();
+        competitors.sort(function (a, b) {
+            return (a.order || 0) - (b.order || 0);
+        });
+        let pending = Math.max(1, competitors.length);
+        let linesById = {};
+        let finish = () => {
+            pending -= 1;
+            if (pending > 0) {
+                return;
+            }
+            let st = (statusObj && statusObj.type) || {};
+            let location = (c.venue && c.venue.address && c.venue.address.summary) || "";
+            let tournament = eventNames[stub.eventId] || locToName[location] || location || "Tournament";
+            if (!this._matchTourEnabled(stub.league, tournament)) {
+                done(null);
+                return;
+            }
+            let slug = (c.type && c.type.slug) || "";
+            let eventType = (c.type && c.type.text) || "";
+            let teams = competitors.map(function (p) {
+                let items = (linesById[p.id] && linesById[p.id].items) || [];
+                let lines = items.map(function (ls) {
+                    return {
+                        value: ls.value,
+                        tiebreak: ls.tiebreak || ls.tieBreakScore || null,
+                        winner: false
+                    };
+                });
+                return {
+                    name: p.name || "TBD",
+                    seed: p.tournamentSeed || null,
+                    country: "",
+                    score: "",
+                    linescores: lines,
+                    serving: false,
+                    winner: !!p.winner,
+                    isDoubles: p.type === "team" || /doubles/i.test(slug)
+                };
+            });
+            let slam = _isGrandSlam(tournament);
+            done({
+                id: String(c.id || ""),
+                tour: stub.league === "wta" ? "WTA" : "ATP",
+                isGrandSlam: slam,
+                badge: slam ? "Grand Slam" : (stub.league === "wta" ? "WTA" : "ATP"),
+                tournament: tournament,
+                location: location,
+                roundName: (c.round && (c.round.displayName || c.round.description)) || "",
+                courtName: (c.court && (c.court.name || c.court.displayName)) || "",
+                eventType: eventType,
+                status: state === "in" ? "Live" : "Finished",
+                statusCode: state,
+                summary: (st.detail || st.shortDetail || st.description || "").toString(),
+                leadText: "",
+                teams: teams,
+                isDoubles: /doubles/i.test(slug) || /doubles/i.test(eventType),
+                recent: true,
+                link: (c.links && c.links[0] && c.links[0].href) || "",
+                start: c.date || "",
+                startMs: c.date ? Date.parse(c.date) : NaN,
+                isToday: true
+            });
+        };
+        if (!competitors.length) {
+            finish();
+            return;
+        }
+        for (let i = 0; i < competitors.length; i++) {
+            let p = competitors[i];
+            let lsRef = p.linescores && p.linescores.$ref ? _httpsRef(p.linescores.$ref) : "";
+            if (!lsRef) {
+                finish();
+                continue;
+            }
+            this._fetchJson(lsRef, false, (json) => {
+                linesById[p.id] = json;
+                finish();
+            });
+        }
+    },
+
     _fetchJson: function (url, useUa, callback) {
         let message = Soup.Message.new("GET", url);
         try {
             if (useUa) {
                 message.request_headers.replace("User-Agent", USER_AGENT);
             } else {
-                // site.api.espn.com scoreboard returns 403 for browser/libsoup UAs
                 message.request_headers.replace("User-Agent", "curl/8.5.0");
             }
             message.request_headers.append("Accept", "application/json");
@@ -890,19 +1141,6 @@ TennisTodayDesklet.prototype = {
         }
     },
 
-    _headerNeedsBoard: function (headerMatches) {
-        let hasLive = false;
-        let hasFinished = false;
-        for (let i = 0; i < headerMatches.length; i++) {
-            if (headerMatches[i].status === "Live") {
-                hasLive = true;
-            } else if (headerMatches[i].status === "Finished") {
-                hasFinished = true;
-            }
-        }
-        return !hasLive && !hasFinished;
-    },
-
     _snapshotMatches: function (matches) {
         let parts = [];
         for (let i = 0; i < matches.length; i++) {
@@ -921,7 +1159,7 @@ TennisTodayDesklet.prototype = {
         return parts.join("\t");
     },
 
-    _fetch: function (forceBoard) {
+    _fetch: function () {
         if (this._fetching || !this._httpSession) {
             return;
         }
@@ -930,42 +1168,10 @@ TennisTodayDesklet.prototype = {
         this._fetchJson(ESPN_URL, true, (headerJson) => {
             this._bufHeader = headerJson;
             let headerMatches = headerJson ? parseEspnHeader(headerJson) : [];
-            let wantBoard = !!forceBoard || this._headerNeedsBoard(headerMatches);
-            if (wantBoard) {
-                wantBoard = !!forceBoard || !this._lastBoardAt
-                    || (Date.now() - this._lastBoardAt >= BOARD_INTERVAL_MS);
-            }
-            if (!wantBoard) {
+            this._fetchDatedBoard(headerMatches, (board) => {
+                this._boardCache = board || [];
+                this._lastBoardAt = Date.now();
                 this._finishFetch(headerMatches, this._boardCache);
-                return;
-            }
-            this._fetchJson(ESPN_ATP_SCOREBOARD, false, (atpJson) => {
-                Mainloop.idle_add(() => {
-                    let board = [];
-                    try {
-                        if (atpJson) {
-                            board = board.concat(parseEspnScoreboardLive(atpJson, "ATP"));
-                        }
-                    } catch (e) {
-                        global.logError(UUID + " ATP parse error: " + e);
-                    }
-                    this._fetchJson(ESPN_WTA_SCOREBOARD, false, (wtaJson) => {
-                        Mainloop.idle_add(() => {
-                            try {
-                                if (wtaJson) {
-                                    board = board.concat(parseEspnScoreboardLive(wtaJson, "WTA"));
-                                }
-                            } catch (e) {
-                                global.logError(UUID + " WTA parse error: " + e);
-                            }
-                            this._boardCache = board;
-                            this._lastBoardAt = Date.now();
-                            this._finishFetch(headerMatches, board);
-                            return false;
-                        });
-                    });
-                    return false;
-                });
             });
         });
     },
@@ -975,6 +1181,16 @@ TennisTodayDesklet.prototype = {
         try {
             header = header || [];
             board = board || [];
+            header = header.filter((m) => {
+                let league = m.tour === "WTA" ? "wta" : "atp";
+                if (!this._matchTourEnabled(league, m.tournament)) {
+                    return false;
+                }
+                if (m.isDoubles && !this.showDoubles) {
+                    return false;
+                }
+                return true;
+            });
             let fromBoard = [];
             let seen = {};
             for (let i = 0; i < board.length; i++) {
