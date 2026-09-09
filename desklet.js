@@ -236,6 +236,7 @@ function _parseEvent(event, tour) {
         return {
             name: c.displayName || c.name || c.abbreviation || "TBD",
             seed: c.tournamentSeed || null,
+            athleteId: String(c.id || ""),
             country: _countryFromLogo(c.logo),
             score: c.score || "",
             points: _formatPoints(c.score),
@@ -347,6 +348,8 @@ TennisTodayDesklet.prototype = {
         this._stubEvents = {};
         this._lastListAt = 0;
         this._finishedById = {};
+        this._countryById = {};
+        this._countryPending = {};
 
         this._initHttp();
         this._bindSettings(deskletId);
@@ -962,6 +965,7 @@ TennisTodayDesklet.prototype = {
             return (a.order || 0) - (b.order || 0);
         });
         let slam = _isGrandSlam(tournament);
+        let countryById = this._countryById;
         return {
             id: String(c.id || ""),
             tour: stub.league === "wta" ? "WTA" : "ATP",
@@ -980,7 +984,9 @@ TennisTodayDesklet.prototype = {
                 return {
                     name: p.name || "TBD",
                     seed: p.tournamentSeed || null,
-                    country: "",
+                    athleteId: String(p.id || ""),
+                    athleteRef: p.athlete && p.athlete.$ref ? p.athlete.$ref : "",
+                    country: (p.id && countryById[p.id]) || "",
                     score: "",
                     points: "",
                     linescores: [],
@@ -1317,6 +1323,7 @@ TennisTodayDesklet.prototype = {
             }
             let slug = (c.type && c.type.slug) || "";
             let eventType = (c.type && c.type.text) || "";
+            let countryById = this._countryById;
             let teams = competitors.map(function (p) {
                 let items = (linesById[p.id] && linesById[p.id].items) || [];
                 let lines = items.map(function (ls) {
@@ -1329,7 +1336,9 @@ TennisTodayDesklet.prototype = {
                 return {
                     name: p.name || "TBD",
                     seed: p.tournamentSeed || null,
-                    country: "",
+                    athleteId: String(p.id || ""),
+                    athleteRef: p.athlete && p.athlete.$ref ? p.athlete.$ref : "",
+                    country: (p.id && countryById[p.id]) || "",
                     score: "",
                     points: "",
                     linescores: lines,
@@ -1454,7 +1463,7 @@ TennisTodayDesklet.prototype = {
             let teams = m.teams || [];
             for (let t = 0; t < teams.length; t++) {
                 let tm = teams[t];
-                parts.push(tm.name || "", tm.serving ? "1" : "0", tm.winner ? "1" : "0", tm.score || "", tm.points || "");
+                parts.push(tm.name || "", tm.serving ? "1" : "0", tm.winner ? "1" : "0", tm.score || "", tm.points || "", tm.country || "");
                 let lines = tm.linescores || [];
                 for (let k = 0; k < lines.length; k++) {
                     parts.push(String(lines[k].value), String(lines[k].tiebreak || ""));
@@ -1510,6 +1519,97 @@ TennisTodayDesklet.prototype = {
                 }
             }
             let next = fromBoard.concat(rest);
+            this._seedCountries(header.concat(fromBoard));
+            this._fillCountries(next, (filled) => {
+                this._applyMatches(filled);
+            });
+            return;
+        } catch (e) {
+            this._error = _("Invalid score data");
+            global.logError(UUID + " merge error: " + e);
+        }
+        this._render();
+    },
+
+    _seedCountries: function (matches) {
+        for (let i = 0; i < (matches || []).length; i++) {
+            let teams = matches[i].teams || [];
+            for (let t = 0; t < teams.length; t++) {
+                let tm = teams[t];
+                if (tm.athleteId && tm.country) {
+                    this._countryById[tm.athleteId] = tm.country;
+                }
+            }
+        }
+    },
+
+    _countryFromAthlete: function (json) {
+        if (!json) {
+            return "";
+        }
+        let abbr = json.citizenshipCountry && json.citizenshipCountry.abbreviation;
+        if (abbr) {
+            return String(abbr).toUpperCase();
+        }
+        return _countryFromLogo(json.flag && json.flag.href);
+    },
+
+    _fetchAthleteCountry: function (id, ref, done) {
+        if (!id) {
+            done("");
+            return;
+        }
+        if (this._countryById[id] !== undefined) {
+            done(this._countryById[id]);
+            return;
+        }
+        if (!this._countryPending[id]) {
+            this._countryPending[id] = [];
+            let url = ref || ("https://sports.core.api.espn.com/v2/sports/tennis/athletes/" + id);
+            this._fetchJson(_httpsRef(url), false, (json) => {
+                let cc = this._countryFromAthlete(json);
+                this._countryById[id] = cc;
+                let wait = this._countryPending[id] || [];
+                delete this._countryPending[id];
+                for (let i = 0; i < wait.length; i++) {
+                    wait[i](cc);
+                }
+            });
+        }
+        this._countryPending[id].push(done);
+    },
+
+    _fillCountries: function (matches, done) {
+        let left = 1;
+        let tick = () => {
+            left -= 1;
+            if (left <= 0) {
+                done(matches);
+            }
+        };
+        for (let i = 0; i < (matches || []).length; i++) {
+            let teams = matches[i].teams || [];
+            for (let t = 0; t < teams.length; t++) {
+                let tm = teams[t];
+                if (tm.country || tm.isDoubles || !tm.athleteId) {
+                    continue;
+                }
+                if (this._countryById[tm.athleteId] !== undefined) {
+                    tm.country = this._countryById[tm.athleteId];
+                    continue;
+                }
+                left += 1;
+                this._fetchAthleteCountry(tm.athleteId, tm.athleteRef, (cc) => {
+                    tm.country = cc;
+                    tick();
+                });
+            }
+        }
+        tick();
+    },
+
+    _applyMatches: function (next) {
+        try {
             let snap = this._snapshotMatches(next);
             if (snap === this._lastSnapshot) {
                 return;
@@ -1520,7 +1620,7 @@ TennisTodayDesklet.prototype = {
             this._updatedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         } catch (e) {
             this._error = _("Invalid score data");
-            global.logError(UUID + " merge error: " + e);
+            global.logError(UUID + " apply error: " + e);
         }
         this._render();
     },
