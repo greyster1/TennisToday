@@ -130,10 +130,12 @@ function _parseEvent(event, tour) {
 
     let tournamentName = event.name || event.shortName || "";
     let tourCode = String(tour || "").toUpperCase();
+    let slam = _isGrandSlam(tournamentName);
     return {
         id: String(event.id || event.competitionId || event.uid || ""),
         tour: tourCode,
-        badge: _isGrandSlam(tournamentName) ? "Grand Slam" : tourCode,
+        isGrandSlam: slam,
+        badge: slam ? "Grand Slam" : tourCode,
         tournament: tournamentName,
         location: event.location || "",
         roundName: roundName,
@@ -183,6 +185,7 @@ TennisTodayDesklet.prototype = {
         this.metadata = metadata;
         this.enableAtp = true;
         this.enableWta = true;
+        this.enableGrandSlam = true;
         this.showDoubles = true;
         this.refreshSeconds = 30;
         this.showCompleted = true;
@@ -225,6 +228,7 @@ TennisTodayDesklet.prototype = {
         this.settings = new Settings.DeskletSettings(this, UUID, deskletId);
         this.settings.bindProperty(Settings.BindingDirection.IN, "enable-atp", "enableAtp", this._onSettingsChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "enable-wta", "enableWta", this._onSettingsChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "enable-grand-slam", "enableGrandSlam", this._onSettingsChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "show-doubles", "showDoubles", this._onSettingsChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "refresh-seconds", "refreshSeconds", this._onRefreshSettingChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "show-completed", "showCompleted", this._onSettingsChanged, null);
@@ -322,13 +326,19 @@ TennisTodayDesklet.prototype = {
 
         for (let i = 0; i < this._matches.length; i++) {
             let m = this._matches[i];
-            if (m.tour === "ATP" && !this.enableAtp) {
-                continue;
-            }
-            if (m.tour === "WTA" && !this.enableWta) {
-                continue;
-            }
-            if (m.tour !== "ATP" && m.tour !== "WTA") {
+            if (m.isGrandSlam) {
+                if (!this.enableGrandSlam) {
+                    continue;
+                }
+            } else if (m.tour === "ATP") {
+                if (!this.enableAtp) {
+                    continue;
+                }
+            } else if (m.tour === "WTA") {
+                if (!this.enableWta) {
+                    continue;
+                }
+            } else {
                 continue;
             }
             if (m.isDoubles && !this.showDoubles) {

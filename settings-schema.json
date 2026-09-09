@@ -15,7 +15,7 @@
         "section-tours": {
             "type": "section",
             "title": "Tours",
-            "keys": ["enable-atp", "enable-wta", "show-doubles"]
+            "keys": ["enable-atp", "enable-wta", "enable-grand-slam", "show-doubles"]
         },
         "section-refresh": {
             "type": "section",
@@ -53,6 +53,11 @@
         "type": "switch",
         "default": true,
         "description": "Show WTA matches"
+    },
+    "enable-grand-slam": {
+        "type": "switch",
+        "default": true,
+        "description": "Show Grand Slam"
     },
     "show-doubles": {
         "type": "switch",
