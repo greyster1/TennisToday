@@ -535,16 +535,16 @@ LiveTennisDesklet.prototype = {
 
         let name = team.name;
         let nameClass = team.winner ? "lt-player-winner" : "lt-player-name";
-        let nameLabel = this._label(name, nameClass);
-        nameLabel.x_expand = true;
-        row.add_child(nameLabel);
-
+        let nameCluster = new St.BoxLayout({ vertical: false, x_expand: false });
+        nameCluster.add_child(this._label(name, nameClass, false, true));
         if (team.seed) {
-            row.add_child(this._label("(" + team.seed + ")", "lt-player-seed"));
+            nameCluster.add_child(this._label("(" + team.seed + ")", "lt-player-seed", false, true));
         }
         if (team.country) {
-            row.add_child(this._label(team.country, "lt-country"));
+            nameCluster.add_child(this._label(team.country, "lt-country", false, true));
         }
+        row.add_child(nameCluster);
+        row.add_child(new St.Bin({ x_expand: true }));
 
         let scoreBox = new St.BoxLayout({
             vertical: false,
@@ -559,7 +559,7 @@ LiveTennisDesklet.prototype = {
                 let cls = "lt-set";
                 let markup = false;
                 if (ls && ls.value != null && ls.value !== "") {
-                    if (ls.tiebreak) {
+                    if (ls.tiebreak && Number(ls.value) >= 6) {
                         text = this._tiebreakMarkup(ls.value, ls.tiebreak);
                         markup = true;
                     } else {

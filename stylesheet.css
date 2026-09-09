@@ -129,6 +129,7 @@
 .lt-player-seed {
     color: rgba(210, 220, 200, 0.55);
     font-size: 8pt;
+    padding-left: 4px;
 }
 
 .lt-country {
