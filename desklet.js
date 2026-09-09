@@ -1220,11 +1220,23 @@ TennisTodayDesklet.prototype = {
             }
             let live = [];
             let finished = [];
+            let stillUpcoming = [];
             for (let s = 0; s < stated.length; s++) {
                 if (stated[s].state === "in") {
                     live.push(stated[s]);
                 } else if (stated[s].state === "post") {
                     finished.push(stated[s]);
+                } else if (stated[s].state === "pre") {
+                    let up = this._matchFromStub(stated[s].stub, locToName, eventNames, "Upcoming", "");
+                    if (up) {
+                        let names = (up.teams || []).map(function (t) { return t.name || ""; });
+                        let headerHit = headerByPair[_pairKeyFromNames(names)];
+                        if (headerHit && headerHit.startMs) {
+                            up.startMs = headerHit.startMs;
+                            up.start = headerHit.start || up.start;
+                        }
+                        stillUpcoming.push(up);
+                    }
                 }
             }
             finished.sort(function (a, b) {
@@ -1239,10 +1251,12 @@ TennisTodayDesklet.prototype = {
             }
             let keep = live.concat(finished);
             if (!keep.length) {
-                finishAll([]);
+                finishAll(stillUpcoming);
                 return;
             }
-            this._hydrateScores(keep, locToName, eventNames, finishAll);
+            this._hydrateScores(keep, locToName, eventNames, (scored) => {
+                finishAll((scored || []).concat(stillUpcoming));
+            });
         };
         for (let w = 0; w < wanted.length; w++) {
             this._readStatus(wanted[w], (row) => {
@@ -1262,26 +1276,18 @@ TennisTodayDesklet.prototype = {
             let state = st.state || "";
             if (!state) {
                 let winner = (c.competitors || []).some(function (p) { return p.winner; });
-                let startMs = c.date ? Date.parse(c.date) : NaN;
                 if (winner) {
                     state = "post";
-                } else if (!isNaN(startMs) && startMs <= Date.now()) {
-                    state = "in";
                 } else {
-                    done(null);
-                    return;
+                    state = "pre";
                 }
             }
             if (state === "post" && st.completed === false) {
                 state = "in";
             }
             if (state === "pre") {
-                let startMs = c.date ? Date.parse(c.date) : NaN;
-                if (isNaN(startMs) || startMs > Date.now()) {
-                    done(null);
-                    return;
-                }
-                state = "in";
+                done({ stub: stub, statusObj: statusObj, state: "pre" });
+                return;
             }
             if (state !== "in" && state !== "post") {
                 done(null);
