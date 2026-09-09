@@ -28,6 +28,8 @@ const SET_COL_PX = 28;
 const SCORE_FIT_BASE_PX = 400;
 const CHROME_PX = 36;
 const SCORE_GUTTER_PX = 16;
+const BOARD_INTERVAL_MS = 180000;
+const MAX_BOARD_FINISHED = 16;
 
 Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
 
@@ -299,7 +301,19 @@ function parseEspnScoreboardLive(json, tour) {
     for (let e = 0; e < events.length; e++) {
         walk(events[e], events[e]);
     }
-    return matches;
+    let live = [];
+    let finished = [];
+    for (let i = 0; i < matches.length; i++) {
+        if (matches[i].status === "Live") {
+            live.push(matches[i]);
+        } else {
+            finished.push(matches[i]);
+        }
+    }
+    finished.sort(function (a, b) {
+        return (b.startMs || 0) - (a.startMs || 0);
+    });
+    return live.concat(finished.slice(0, MAX_BOARD_FINISHED));
 }
 
 function TennisTodayDesklet(metadata, deskletId) {
@@ -317,7 +331,7 @@ TennisTodayDesklet.prototype = {
         this.enableWta = true;
         this.enableGrandSlam = true;
         this.showDoubles = true;
-        this.refreshSeconds = 30;
+        this.refreshSeconds = 60;
         this.showCompleted = true;
         this.maxCompleted = 4;
         this.showUpcoming = true;
@@ -332,6 +346,8 @@ TennisTodayDesklet.prototype = {
         this._timer = null;
         this._httpSession = null;
         this._fetching = false;
+        this._boardCache = [];
+        this._lastBoardAt = 0;
 
         this._initHttp();
         this._bindSettings(deskletId);
@@ -350,8 +366,8 @@ TennisTodayDesklet.prototype = {
         } else {
             this._httpSession = new Soup.Session();
         }
-        this._httpSession.timeout = 60;
-        this._httpSession.idle_timeout = 60;
+        this._httpSession.timeout = 45;
+        this._httpSession.idle_timeout = 45;
     },
 
     _bindSettings: function (deskletId) {
@@ -380,7 +396,7 @@ TennisTodayDesklet.prototype = {
 
     _populateContextMenu: function () {
         let refresh = new PopupMenu.PopupMenuItem(_("Refresh now"));
-        refresh.connect("activate", () => this._fetch());
+        refresh.connect("activate", () => this._fetch(true));
         this._menu.addMenuItem(refresh);
 
         let open = new PopupMenu.PopupMenuItem(_("Open ESPN scoreboard"));
@@ -648,7 +664,7 @@ TennisTodayDesklet.prototype = {
             style_class: "lt-refresh-button",
             label: "↺"
         });
-        refresh.connect("clicked", () => this._fetch());
+        refresh.connect("clicked", () => this._fetch(true));
         header.add_child(refresh);
 
         let settingsBtn = new St.Button({ style_class: "lt-refresh-button" });
@@ -873,49 +889,63 @@ TennisTodayDesklet.prototype = {
         }
     },
 
-    _fetch: function () {
+    _fetch: function (forceBoard) {
         if (this._fetching || !this._httpSession) {
             return;
         }
         this._fetching = true;
-        this._pending = 3;
-        this._bufHeader = null;
-        this._bufLive = [];
-        this._render();
-        this._fetchJson(ESPN_URL, true, (json) => {
-            this._bufHeader = json;
-            this._onPart();
-        });
-        this._fetchJson(ESPN_ATP_SCOREBOARD, false, (json) => {
-            if (json) {
-                this._bufLive = this._bufLive.concat(parseEspnScoreboardLive(json, "ATP"));
+        let wantBoard = !!forceBoard || !this._lastBoardAt
+            || (Date.now() - this._lastBoardAt >= BOARD_INTERVAL_MS);
+
+        this._fetchJson(ESPN_URL, true, (headerJson) => {
+            this._bufHeader = headerJson;
+            if (!wantBoard) {
+                this._finishFetch(this._boardCache);
+                return;
             }
-            this._onPart();
-        });
-        this._fetchJson(ESPN_WTA_SCOREBOARD, false, (json) => {
-            if (json) {
-                this._bufLive = this._bufLive.concat(parseEspnScoreboardLive(json, "WTA"));
-            }
-            this._onPart();
+            this._fetchJson(ESPN_ATP_SCOREBOARD, false, (atpJson) => {
+                Mainloop.idle_add(() => {
+                    let board = [];
+                    try {
+                        if (atpJson) {
+                            board = board.concat(parseEspnScoreboardLive(atpJson, "ATP"));
+                        }
+                    } catch (e) {
+                        global.logError(UUID + " ATP parse error: " + e);
+                    }
+                    this._fetchJson(ESPN_WTA_SCOREBOARD, false, (wtaJson) => {
+                        Mainloop.idle_add(() => {
+                            try {
+                                if (wtaJson) {
+                                    board = board.concat(parseEspnScoreboardLive(wtaJson, "WTA"));
+                                }
+                            } catch (e) {
+                                global.logError(UUID + " WTA parse error: " + e);
+                            }
+                            this._boardCache = board;
+                            this._lastBoardAt = Date.now();
+                            this._finishFetch(board);
+                            return false;
+                        });
+                    });
+                    return false;
+                });
+            });
         });
     },
 
-    _onPart: function () {
-        this._pending -= 1;
-        if (this._pending > 0) {
-            return;
-        }
+    _finishFetch: function (board) {
         this._fetching = false;
         try {
             let header = this._bufHeader ? parseEspnHeader(this._bufHeader) : [];
-            let live = [];
+            let fromBoard = [];
             let seen = {};
-            let rawLive = this._bufLive || [];
-            for (let i = 0; i < rawLive.length; i++) {
-                let key = _matchKey(rawLive[i]);
+            board = board || [];
+            for (let i = 0; i < board.length; i++) {
+                let key = _matchKey(board[i]);
                 if (!seen[key]) {
                     seen[key] = true;
-                    live.push(rawLive[i]);
+                    fromBoard.push(board[i]);
                 }
             }
             let rest = [];
@@ -924,8 +954,8 @@ TennisTodayDesklet.prototype = {
                     rest.push(header[j]);
                 }
             }
-            this._matches = live.concat(rest);
-            this._error = (live.length || rest.length) ? null : _("Could not fetch scores");
+            this._matches = fromBoard.concat(rest);
+            this._error = (fromBoard.length || rest.length) ? null : _("Could not fetch scores");
             this._updatedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         } catch (e) {
             this._error = _("Invalid score data");
