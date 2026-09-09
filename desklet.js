@@ -348,6 +348,7 @@ TennisTodayDesklet.prototype = {
         this._fetching = false;
         this._boardCache = [];
         this._lastBoardAt = 0;
+        this._lastSnapshot = "";
 
         this._initHttp();
         this._bindSettings(deskletId);
@@ -889,18 +890,53 @@ TennisTodayDesklet.prototype = {
         }
     },
 
+    _headerNeedsBoard: function (headerMatches) {
+        let hasLive = false;
+        let hasFinished = false;
+        for (let i = 0; i < headerMatches.length; i++) {
+            if (headerMatches[i].status === "Live") {
+                hasLive = true;
+            } else if (headerMatches[i].status === "Finished") {
+                hasFinished = true;
+            }
+        }
+        return !hasLive && !hasFinished;
+    },
+
+    _snapshotMatches: function (matches) {
+        let parts = [];
+        for (let i = 0; i < matches.length; i++) {
+            let m = matches[i];
+            parts.push(m.status, m.summary || "", m.tournament || "", m.roundName || "");
+            let teams = m.teams || [];
+            for (let t = 0; t < teams.length; t++) {
+                let tm = teams[t];
+                parts.push(tm.name || "", tm.serving ? "1" : "0", tm.winner ? "1" : "0", tm.score || "");
+                let lines = tm.linescores || [];
+                for (let k = 0; k < lines.length; k++) {
+                    parts.push(String(lines[k].value), String(lines[k].tiebreak || ""));
+                }
+            }
+        }
+        return parts.join("\t");
+    },
+
     _fetch: function (forceBoard) {
         if (this._fetching || !this._httpSession) {
             return;
         }
         this._fetching = true;
-        let wantBoard = !!forceBoard || !this._lastBoardAt
-            || (Date.now() - this._lastBoardAt >= BOARD_INTERVAL_MS);
 
         this._fetchJson(ESPN_URL, true, (headerJson) => {
             this._bufHeader = headerJson;
+            let headerMatches = headerJson ? parseEspnHeader(headerJson) : [];
+            let wantBoard = !!forceBoard || this._headerNeedsBoard(headerMatches);
+            if (wantBoard) {
+                wantBoard = !!forceBoard || !this._lastBoardAt
+                    || (Date.now() - this._lastBoardAt >= BOARD_INTERVAL_MS);
+            }
             if (!wantBoard) {
-                this._finishFetch(this._boardCache);
+                this._finishFetch(headerMatches, this._boardCache);
                 return;
             }
             this._fetchJson(ESPN_ATP_SCOREBOARD, false, (atpJson) => {
@@ -924,7 +960,7 @@ TennisTodayDesklet.prototype = {
                             }
                             this._boardCache = board;
                             this._lastBoardAt = Date.now();
-                            this._finishFetch(board);
+                            this._finishFetch(headerMatches, board);
                             return false;
                         });
                     });
@@ -934,13 +970,13 @@ TennisTodayDesklet.prototype = {
         });
     },
 
-    _finishFetch: function (board) {
+    _finishFetch: function (header, board) {
         this._fetching = false;
         try {
-            let header = this._bufHeader ? parseEspnHeader(this._bufHeader) : [];
+            header = header || [];
+            board = board || [];
             let fromBoard = [];
             let seen = {};
-            board = board || [];
             for (let i = 0; i < board.length; i++) {
                 let key = _matchKey(board[i]);
                 if (!seen[key]) {
@@ -954,8 +990,14 @@ TennisTodayDesklet.prototype = {
                     rest.push(header[j]);
                 }
             }
-            this._matches = fromBoard.concat(rest);
-            this._error = (fromBoard.length || rest.length) ? null : _("Could not fetch scores");
+            let next = fromBoard.concat(rest);
+            let snap = this._snapshotMatches(next);
+            if (snap === this._lastSnapshot) {
+                return;
+            }
+            this._lastSnapshot = snap;
+            this._matches = next;
+            this._error = next.length ? null : _("Could not fetch scores");
             this._updatedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         } catch (e) {
             this._error = _("Invalid score data");
