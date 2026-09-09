@@ -75,9 +75,17 @@ function _formatMatchTime(ms) {
         return "";
     }
     try {
-        return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        return new Date(ms).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+            timeZoneName: "short"
+        });
     } catch (e) {
-        return "";
+        try {
+            return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        } catch (e2) {
+            return "";
+        }
     }
 }
 
