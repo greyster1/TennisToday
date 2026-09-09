@@ -30,6 +30,7 @@ const SCORE_FIT_BASE_PX = 400;
 const CHROME_PX = 36;
 const SCORE_GUTTER_PX = 16;
 const MAX_BOARD_FINISHED = 16;
+const LIST_INTERVAL_MS = 180000;
 
 Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
 
@@ -322,6 +323,11 @@ TennisTodayDesklet.prototype = {
         this._boardCache = [];
         this._lastBoardAt = 0;
         this._lastSnapshot = "";
+        this._stubCache = [];
+        this._stubLoc = {};
+        this._stubEvents = {};
+        this._lastListAt = 0;
+        this._finishedById = {};
 
         this._initHttp();
         this._bindSettings(deskletId);
@@ -367,8 +373,13 @@ TennisTodayDesklet.prototype = {
     _onToursChanged: function () {
         this._lastSnapshot = "";
         this._boardCache = [];
+        this._stubCache = [];
+        this._stubLoc = {};
+        this._stubEvents = {};
+        this._lastListAt = 0;
+        this._finishedById = {};
         this._render();
-        this._fetch();
+        this._fetch(true);
     },
 
     _onRefreshSettingChanged: function () {
@@ -873,6 +884,101 @@ TennisTodayDesklet.prototype = {
         return leagues;
     },
 
+    _headerUrls: function () {
+        // WTA header is ~64KB of 125s. Combined tennis header is ~78KB.
+        // Slam-only uses the ~14KB ATP header; women's slam upcoming comes from dated core.
+        if (this.enableWta) {
+            return [ESPN_URL];
+        }
+        if (this.enableAtp || this.enableGrandSlam) {
+            return [ESPN_URL + "&league=atp"];
+        }
+        return [];
+    },
+
+    _fetchHeaders: function (done) {
+        let urls = this._headerUrls();
+        if (!urls.length) {
+            done([]);
+            return;
+        }
+        let left = urls.length;
+        let all = [];
+        for (let i = 0; i < urls.length; i++) {
+            this._fetchJson(urls[i], true, (json) => {
+                if (json) {
+                    all = all.concat(parseEspnHeader(json));
+                }
+                left -= 1;
+                if (left <= 0) {
+                    done(all);
+                }
+            });
+        }
+    },
+
+    _compLink: function (c) {
+        let links = (c && c.links) || [];
+        for (let i = 0; i < links.length; i++) {
+            let rel = links[i].rel || [];
+            let href = links[i].href || "";
+            if (href.indexOf("http") === 0 && rel.indexOf("desktop") !== -1) {
+                return href;
+            }
+        }
+        return (links[0] && links[0].href) || "";
+    },
+
+    _matchFromStub: function (stub, locToName, eventNames, status, summary) {
+        let c = stub.comp;
+        let location = (c.venue && c.venue.address && c.venue.address.summary) || "";
+        let tournament = eventNames[stub.eventId] || locToName[location] || location || "Tournament";
+        if (!this._matchTourEnabled(stub.league, tournament)) {
+            return null;
+        }
+        let slug = (c.type && c.type.slug) || "";
+        let eventType = (c.type && c.type.text) || "";
+        let competitors = (c.competitors || []).slice();
+        competitors.sort(function (a, b) {
+            return (a.order || 0) - (b.order || 0);
+        });
+        let slam = _isGrandSlam(tournament);
+        return {
+            id: String(c.id || ""),
+            tour: stub.league === "wta" ? "WTA" : "ATP",
+            isGrandSlam: slam,
+            badge: slam ? "Grand Slam" : (stub.league === "wta" ? "WTA" : "ATP"),
+            tournament: tournament,
+            location: location,
+            roundName: (c.round && (c.round.displayName || c.round.description)) || "",
+            courtName: (c.court && (c.court.name || c.court.displayName)) || "",
+            eventType: eventType,
+            status: status,
+            statusCode: status === "Upcoming" ? "pre" : "",
+            summary: summary || "",
+            leadText: "",
+            teams: competitors.map(function (p) {
+                return {
+                    name: p.name || "TBD",
+                    seed: p.tournamentSeed || null,
+                    country: "",
+                    score: "",
+                    points: "",
+                    linescores: [],
+                    serving: false,
+                    winner: !!p.winner,
+                    isDoubles: p.type === "team" || /doubles/i.test(slug)
+                };
+            }),
+            isDoubles: /doubles/i.test(slug) || /doubles/i.test(eventType),
+            recent: false,
+            link: this._compLink(c),
+            start: c.date || "",
+            startMs: c.date ? Date.parse(c.date) : NaN,
+            isToday: _etYmd(c.date ? Date.parse(c.date) : NaN) === _etYmd(Date.now())
+        };
+    },
+
     _eventWanted: function (league, eventId, eventNames) {
         let name = eventNames[eventId] || "";
         if (league === "atp" && this.enableAtp) {
@@ -906,14 +1012,9 @@ TennisTodayDesklet.prototype = {
         return [today];
     },
 
-    _fetchDatedBoard: function (headerMatches, done) {
-        let leagues = this._toggledLeagues();
-        if (!leagues.length) {
-            done([]);
-            return;
-        }
-        let locToName = {};
-        let eventNames = {};
+    _mapsFromHeader: function (headerMatches) {
+        let locToName = Object.assign({}, this._stubLoc);
+        let eventNames = Object.assign({}, this._stubEvents);
         for (let i = 0; i < (headerMatches || []).length; i++) {
             let m = headerMatches[i];
             if (m.location && m.tournament) {
@@ -923,6 +1024,24 @@ TennisTodayDesklet.prototype = {
                 eventNames[m.id] = m.tournament;
             }
         }
+        return { locToName: locToName, eventNames: eventNames };
+    },
+
+    _fetchDatedBoard: function (headerMatches, done, force) {
+        let maps = this._mapsFromHeader(headerMatches);
+        let locToName = maps.locToName;
+        let eventNames = maps.eventNames;
+        let listsFresh = !force && this._stubCache.length
+            && (Date.now() - this._lastListAt < LIST_INTERVAL_MS);
+        if (listsFresh) {
+            this._hydrateStubs(this._stubCache, locToName, eventNames, headerMatches, done);
+            return;
+        }
+        let leagues = this._toggledLeagues();
+        if (!leagues.length) {
+            done([]);
+            return;
+        }
         let dates = this._etDateList();
         let listsLeft = leagues.length * dates.length;
         let stubs = [];
@@ -931,6 +1050,10 @@ TennisTodayDesklet.prototype = {
             if (listsLeft > 0) {
                 return;
             }
+            this._stubCache = stubs;
+            this._stubLoc = locToName;
+            this._stubEvents = eventNames;
+            this._lastListAt = Date.now();
             this._hydrateStubs(stubs, locToName, eventNames, headerMatches, done);
         };
         for (let l = 0; l < leagues.length; l++) {
@@ -977,6 +1100,7 @@ TennisTodayDesklet.prototype = {
 
     _hydrateStubs: function (stubs, locToName, eventNames, headerMatches, done) {
         let now = Date.now();
+        let todayEt = _etYmd(now);
         let headerByPair = {};
         for (let h = 0; h < (headerMatches || []).length; h++) {
             let m = headerMatches[h];
@@ -984,6 +1108,8 @@ TennisTodayDesklet.prototype = {
             headerByPair[_pairKeyFromNames(names)] = m;
         }
         let wanted = [];
+        let upcoming = [];
+        let reused = [];
         for (let i = 0; i < stubs.length; i++) {
             let stub = stubs[i];
             let c = stub.comp;
@@ -996,9 +1122,6 @@ TennisTodayDesklet.prototype = {
                 continue;
             }
             let startMs = c.date ? Date.parse(c.date) : NaN;
-            if (!isNaN(startMs) && startMs > now + 2 * 3600 * 1000) {
-                continue;
-            }
             let names = (c.competitors || []).map(function (p) { return p.name || ""; });
             let headerHit = headerByPair[_pairKeyFromNames(names)];
             if (headerHit) {
@@ -1009,10 +1132,27 @@ TennisTodayDesklet.prototype = {
                     continue;
                 }
             }
+            let cid = String(c.id || "");
+            if (cid && this._finishedById[cid]) {
+                reused.push(this._finishedById[cid]);
+                continue;
+            }
+            if (!isNaN(startMs) && startMs > now) {
+                if (_etYmd(startMs) === todayEt) {
+                    let up = this._matchFromStub(stub, locToName, eventNames, "Upcoming", "");
+                    if (up) {
+                        upcoming.push(up);
+                    }
+                }
+                continue;
+            }
             wanted.push(stub);
         }
+        let finishAll = (scored) => {
+            done((scored || []).concat(reused).concat(upcoming));
+        };
         if (!wanted.length) {
-            done([]);
+            finishAll([]);
             return;
         }
         let left = wanted.length;
@@ -1043,10 +1183,10 @@ TennisTodayDesklet.prototype = {
             }
             let keep = live.concat(finished);
             if (!keep.length) {
-                done([]);
+                finishAll([]);
                 return;
             }
-            this._hydrateScores(keep, locToName, eventNames, done);
+            this._hydrateScores(keep, locToName, eventNames, finishAll);
         };
         for (let w = 0; w < wanted.length; w++) {
             this._readStatus(wanted[w], (row) => {
@@ -1097,7 +1237,7 @@ TennisTodayDesklet.prototype = {
             apply(null);
             return;
         }
-        this._fetchJson(statusRef, false, apply);
+        this._fetchJson(statusRef, false, apply, true);
     },
 
     _hydrateScores: function (rows, locToName, eventNames, done) {
@@ -1110,9 +1250,21 @@ TennisTodayDesklet.prototype = {
             }
         };
         for (let i = 0; i < rows.length; i++) {
-            this._hydrateOne(rows[i], locToName, eventNames, (m) => {
+            let row = rows[i];
+            let cid = String((row.stub && row.stub.comp && row.stub.comp.id) || "");
+            if (row.state === "post" && cid && this._finishedById[cid]) {
+                out.push(this._finishedById[cid]);
+                finishOne();
+                continue;
+            }
+            this._hydrateOne(row, locToName, eventNames, (m) => {
                 if (m) {
                     out.push(m);
+                    if (m.status === "Finished" && m.id) {
+                        this._finishedById[m.id] = m;
+                    } else if (m.status === "Live" && m.id && this._finishedById[m.id]) {
+                        delete this._finishedById[m.id];
+                    }
                 }
                 finishOne();
             });
@@ -1128,7 +1280,8 @@ TennisTodayDesklet.prototype = {
         competitors.sort(function (a, b) {
             return (a.order || 0) - (b.order || 0);
         });
-        let pending = Math.max(1, competitors.length) + 1;
+        let live = state === "in";
+        let pending = Math.max(1, competitors.length) + (live ? 1 : 0);
         let linesById = {};
         let serverId = "";
         let finish = () => {
@@ -1191,29 +1344,21 @@ TennisTodayDesklet.prototype = {
                 teams: teams,
                 isDoubles: /doubles/i.test(slug) || /doubles/i.test(eventType),
                 recent: true,
-                link: (function () {
-                    let links = c.links || [];
-                    for (let i = 0; i < links.length; i++) {
-                        let rel = links[i].rel || [];
-                        let href = links[i].href || "";
-                        if (href.indexOf("http") === 0 && rel.indexOf("desktop") !== -1) {
-                            return href;
-                        }
-                    }
-                    return (links[0] && links[0].href) || "";
-                })(),
+                link: this._compLink(c),
                 start: c.date || "",
                 startMs: c.date ? Date.parse(c.date) : NaN,
                 isToday: true
             });
         };
-        let sitRef = c.situation && c.situation.$ref
-            ? _httpsRef(c.situation.$ref)
-            : ESPN_CORE + "/" + stub.league + "/events/" + stub.eventId + "/competitions/" + c.id + "/situation";
-        this._fetchJson(sitRef, false, (json) => {
-            serverId = _athleteIdFromRef(json && json.server && json.server.$ref);
-            finish();
-        });
+        if (live) {
+            let sitRef = c.situation && c.situation.$ref
+                ? _httpsRef(c.situation.$ref)
+                : ESPN_CORE + "/" + stub.league + "/events/" + stub.eventId + "/competitions/" + c.id + "/situation";
+            this._fetchJson(sitRef, false, (json) => {
+                serverId = _athleteIdFromRef(json && json.server && json.server.$ref);
+                finish();
+            }, true);
+        }
         if (!competitors.length) {
             finish();
             return;
@@ -1228,12 +1373,12 @@ TennisTodayDesklet.prototype = {
             this._fetchJson(lsRef, false, (json) => {
                 linesById[p.id] = json;
                 finish();
-            });
+            }, live);
         }
     },
 
-    _fetchJson: function (url, useUa, callback) {
-        if (url && url.indexOf("sports.core.api.espn.com") !== -1) {
+    _fetchJson: function (url, useUa, callback, live) {
+        if (live && url && url.indexOf("sports.core.api.espn.com") !== -1) {
             url = _bustCache(url);
         }
         let message = Soup.Message.new("GET", url);
@@ -1244,7 +1389,7 @@ TennisTodayDesklet.prototype = {
                 message.request_headers.replace("User-Agent", "curl/8.5.0");
             }
             message.request_headers.append("Accept", "application/json");
-            if (url && url.indexOf("sports.core.api.espn.com") !== -1) {
+            if (live) {
                 message.request_headers.replace("Cache-Control", "no-cache");
             }
         } catch (e) {
@@ -1300,20 +1445,18 @@ TennisTodayDesklet.prototype = {
         return parts.join("\t");
     },
 
-    _fetch: function () {
+    _fetch: function (force) {
         if (this._fetching || !this._httpSession) {
             return;
         }
         this._fetching = true;
 
-        this._fetchJson(ESPN_URL, true, (headerJson) => {
-            this._bufHeader = headerJson;
-            let headerMatches = headerJson ? parseEspnHeader(headerJson) : [];
+        this._fetchHeaders((headerMatches) => {
             this._fetchDatedBoard(headerMatches, (board) => {
                 this._boardCache = board || [];
                 this._lastBoardAt = Date.now();
                 this._finishFetch(headerMatches, this._boardCache);
-            });
+            }, force);
         });
     },
 
