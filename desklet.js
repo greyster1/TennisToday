@@ -25,7 +25,7 @@ const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, l
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
 const SET_COL_PX = 28;
 const POINTS_COL_PX = 36;
-const SERVE_COL_PX = 16;
+const SERVE_COL_PX = 22;
 const SCORE_FIT_BASE_PX = 400;
 const CHROME_PX = 36;
 const SCORE_GUTTER_PX = 16;
@@ -829,17 +829,21 @@ TennisTodayDesklet.prototype = {
         });
         wrap.set_width(SERVE_COL_PX);
         if (serving) {
+            let icon = null;
             try {
                 let path = this.metadata.path + "/tennis-icon.png";
-                let gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(path) });
-                wrap.set_child(new St.Icon({
-                    gicon: gicon,
-                    icon_size: 12,
-                    style_class: "lt-serve-ball"
-                }));
+                let file = Gio.File.new_for_path(path);
+                if (file.query_exists(null)) {
+                    icon = new St.Icon({
+                        gicon: new Gio.FileIcon({ file: file }),
+                        icon_size: 14,
+                        style_class: "lt-serve-ball"
+                    });
+                }
             } catch (e) {
-                wrap.set_child(this._label("●", "lt-serve", false, true));
+                icon = null;
             }
+            wrap.set_child(icon || this._label("●", "lt-serve", false, true));
         }
         return wrap;
     },
@@ -1181,7 +1185,7 @@ TennisTodayDesklet.prototype = {
             let names = (c.competitors || []).map(function (p) { return p.name || ""; });
             let headerHit = headerByPair[_pairKeyFromNames(names)];
             if (headerHit) {
-                if (headerHit.status === "Live" || headerHit.status === "Finished") {
+                if (headerHit.status === "Finished") {
                     continue;
                 }
                 if (headerHit.status === "Upcoming" && (isNaN(startMs) || startMs > now)) {
@@ -1556,6 +1560,7 @@ TennisTodayDesklet.prototype = {
                 }
             }
             let next = fromBoard.concat(rest);
+            this._applyHeaderServe(header, next);
             this._seedCountries(header.concat(fromBoard));
             this._fillCountries(next, (filled) => {
                 this._applyMatches(filled);
@@ -1566,6 +1571,43 @@ TennisTodayDesklet.prototype = {
             global.logError(UUID + " merge error: " + e);
         }
         this._render();
+    },
+
+    _applyHeaderServe: function (header, matches) {
+        let byPair = {};
+        for (let i = 0; i < (header || []).length; i++) {
+            let m = header[i];
+            if (m.status !== "Live") {
+                continue;
+            }
+            let names = (m.teams || []).map(function (t) { return t.name || ""; });
+            byPair[_pairKeyFromNames(names)] = m;
+        }
+        for (let i = 0; i < (matches || []).length; i++) {
+            let m = matches[i];
+            if (m.status !== "Live") {
+                continue;
+            }
+            let teams = m.teams || [];
+            let hasServe = teams.some(function (t) { return t.serving; });
+            if (hasServe) {
+                continue;
+            }
+            let names = teams.map(function (t) { return t.name || ""; });
+            let h = byPair[_pairKeyFromNames(names)];
+            if (!h) {
+                continue;
+            }
+            let hTeams = h.teams || [];
+            for (let t = 0; t < teams.length; t++) {
+                let key = _nameKey(teams[t].name);
+                for (let n = 0; n < hTeams.length; n++) {
+                    if (hTeams[n].serving && _nameKey(hTeams[n].name) === key) {
+                        teams[t].serving = true;
+                    }
+                }
+            }
+        }
     },
 
     _seedCountries: function (matches) {

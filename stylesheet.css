@@ -151,13 +151,13 @@
 }
 
 .lt-serve-wrap {
-    width: 16px;
-    min-width: 16px;
-    padding: 0 8px 0 0;
+    width: 22px;
+    min-width: 22px;
+    padding: 0 6px 0 0;
 }
 
 .lt-serve-ball {
-    icon-size: 12px;
+    icon-size: 14px;
 }
 
 .lt-serve {
