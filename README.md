@@ -10,19 +10,28 @@ This app uses ESPN, a free data source for live scores.
 
 ## Install
 
-Cinnamon loads desklets from `~/.local/share/cinnamon/desklets/`. The folder name must match the desklet UUID `TennisToday@greyster1`.
+This is a [Cinnamon](https://github.com/linuxmint/Cinnamon) desklet. It will not run on GNOME, KDE, or XFCE.
+
+Cinnamon loads desklets from `~/.local/share/cinnamon/desklets/`. The folder name must match the UUID `TennisToday@greyster1`.
 
 ```bash
 mkdir -p ~/.local/share/cinnamon/desklets
 git clone https://github.com/greyster1/TennisToday.git ~/.local/share/cinnamon/desklets/TennisToday@greyster1
 ```
 
-Then either:
+Restart Cinnamon so it sees the new folder: **Ctrl+Alt+Esc**, or log out and back in.
 
-- open **System Settings → Desklets → Installed**, enable **TennisToday**, or
-- log out and back in, then add it from Desklets
+Then open **Desklets** (right-click the desktop, or **System Settings → Desklets**), select **TennisToday**, and add it to the desktop. Cloning the repo does not place it on the wallpaper by itself.
 
-Once it is on the desktop, drag it where you want it. Desklets sit on the wallpaper, so they are behind open windows — use show-desktop (`Super+D`) if you cannot see it.
+Drag it where you want. Desklets sit on the wallpaper, behind open windows — use show-desktop (`Super+D`) if you cannot see it.
+
+To update later:
+
+```bash
+git -C ~/.local/share/cinnamon/desklets/TennisToday@greyster1 pull
+```
+
+Then restart Cinnamon again (**Ctrl+Alt+Esc**).
 
 ## License
 
