@@ -247,11 +247,31 @@ LiveTennisDesklet.prototype = {
         }
     },
 
-    _label: function (text, styleClass, wrap, noEllipsize) {
+    _escapeMarkup: function (value) {
+        return GLib.markup_escape_text(String(value), -1);
+    },
+
+    _tiebreakMarkup: function (games, tiebreak) {
+        let gamesText = this._escapeMarkup(games);
+        if (tiebreak === undefined || tiebreak === null || tiebreak === "") {
+            return gamesText;
+        }
+        return gamesText + '<span size="xx-small" rise="6000">(' + this._escapeMarkup(tiebreak) + ")</span>";
+    },
+
+    _scoreLineMarkup: function (score) {
+        return this._escapeMarkup(score).replace(/\((\d+(?:-\d+)?)\)/g, '<span size="xx-small" rise="6000">($1)</span>');
+    },
+
+    _label: function (text, styleClass, wrap, noEllipsize, markup) {
         let label = new St.Label({
-            text: text || "",
             style_class: styleClass || ""
         });
+        if (markup) {
+            label.clutter_text.set_markup(text || "");
+        } else {
+            label.set_text(text || "");
+        }
         if (label.clutter_text) {
             label.clutter_text.ellipsize = (wrap || noEllipsize) ? Pango.EllipsizeMode.NONE : Pango.EllipsizeMode.END;
             if (wrap) {
@@ -537,19 +557,22 @@ LiveTennisDesklet.prototype = {
                 let ls = team.linescores[i];
                 let text = " ";
                 let cls = "lt-set";
+                let markup = false;
                 if (ls && ls.value != null && ls.value !== "") {
-                    text = String(ls.value);
                     if (ls.tiebreak) {
-                        text += "(" + ls.tiebreak + ")";
+                        text = this._tiebreakMarkup(ls.value, ls.tiebreak);
+                        markup = true;
+                    } else {
+                        text = String(ls.value);
                     }
                     if (ls.winner) {
                         cls += " lt-set-win";
                     }
                 }
-                scoreBox.add_child(this._label(text, cls, false, true));
+                scoreBox.add_child(this._label(text, cls, false, true, markup));
             }
         } else if (team.score) {
-            scoreBox.add_child(this._label(team.score, "lt-score-line", false, true));
+            scoreBox.add_child(this._label(this._scoreLineMarkup(team.score), "lt-score-line", false, true, true));
         }
         row.add_child(scoreBox);
         row.add_child(new St.Bin({
