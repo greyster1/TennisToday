@@ -1,5 +1,5 @@
-// Tennis Today desklet — live-tennis@homebackend
-// Desktop scores for ATP and WTA. Inspired by https://github.com/homebackend/live-tennis
+// TennisToday desklet — TennisToday@greyster1
+// Desktop scores for ATP and WTA.
 //
 // Copyright (C) 2026 Graham Ferguson
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -17,7 +17,7 @@ const PopupMenu = imports.ui.popupMenu;
 const ByteArray = imports.byteArray;
 const Gettext = imports.gettext;
 
-const UUID = "live-tennis@homebackend";
+const UUID = "TennisToday@greyster1";
 const ESPN_URL = "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=tennis";
 const ESPN_PAGE = "https://www.espn.com/tennis/scoreboard";
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -31,6 +31,20 @@ Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
 
 function _(str) {
     return Gettext.dgettext(UUID, str);
+}
+
+function _isLocalToday(iso) {
+    if (!iso) {
+        return false;
+    }
+    let d = new Date(iso);
+    if (isNaN(d.getTime())) {
+        return false;
+    }
+    let now = new Date();
+    return d.getFullYear() === now.getFullYear()
+        && d.getMonth() === now.getMonth()
+        && d.getDate() === now.getDate();
 }
 
 function _countryFromLogo(url) {
@@ -116,7 +130,10 @@ function _parseEvent(event, tour) {
         teams: teams,
         isDoubles: isDoubles,
         recent: !!event.recent,
-        link: link
+        link: link,
+        start: event.date || "",
+        startMs: event.date ? Date.parse(event.date) : NaN,
+        isToday: _isLocalToday(event.date)
     };
 }
 
@@ -137,11 +154,11 @@ function parseEspnHeader(json) {
     return matches;
 }
 
-function LiveTennisDesklet(metadata, deskletId) {
+function TennisTodayDesklet(metadata, deskletId) {
     this._init(metadata, deskletId);
 }
 
-LiveTennisDesklet.prototype = {
+TennisTodayDesklet.prototype = {
     __proto__: Desklet.Desklet.prototype,
 
     _init: function (metadata, deskletId) {
@@ -154,8 +171,8 @@ LiveTennisDesklet.prototype = {
         this.refreshSeconds = 30;
         this.showCompleted = true;
         this.maxCompleted = 4;
-        this.showUpcoming = false;
-        this.maxUpcoming = 4;
+        this.showUpcoming = true;
+        this.maxUpcoming = 12;
         this.maxLive = 12;
         this.deskletWidth = 420;
         this.maxHeight = 720;
@@ -170,7 +187,7 @@ LiveTennisDesklet.prototype = {
         this._initHttp();
         this._bindSettings(deskletId);
         this._buildChrome();
-        this.setHeader(_("Tennis Today"));
+        this.setHeader(_("TennisToday"));
         this._populateContextMenu();
         this._render();
         this._fetch();
@@ -305,10 +322,25 @@ LiveTennisDesklet.prototype = {
                 live.push(m);
             } else if (m.status === "Finished") {
                 finished.push(m);
-            } else {
+            } else if (m.status === "Upcoming" && (m.isToday || !m.start)) {
                 upcoming.push(m);
             }
         }
+
+        upcoming.sort(function (a, b) {
+            let am = a.startMs;
+            let bm = b.startMs;
+            if (isNaN(am) && isNaN(bm)) {
+                return 0;
+            }
+            if (isNaN(am)) {
+                return 1;
+            }
+            if (isNaN(bm)) {
+                return -1;
+            }
+            return am - bm;
+        });
 
         live = live.slice(0, this.maxLive || 12);
         if (this.showCompleted) {
@@ -317,7 +349,7 @@ LiveTennisDesklet.prototype = {
             finished = [];
         }
         if (this.showUpcoming) {
-            upcoming = upcoming.slice(0, this.maxUpcoming || 0);
+            upcoming = upcoming.slice(0, this.maxUpcoming || 12);
         } else {
             upcoming = [];
         }
@@ -350,7 +382,7 @@ LiveTennisDesklet.prototype = {
         this._root.destroy_all_children();
 
         let groups = this._selectedMatches();
-        let visible = groups.live.concat(groups.finished, groups.upcoming);
+        let visible = groups.live.concat(groups.upcoming, groups.finished);
         let widthPx = this._fittedWidth(this._maxSetColumns(visible));
         this._root.style = "min-width: " + widthPx + "px; width: " + widthPx + "px;";
         this._root.clip_to_allocation = false;
@@ -382,14 +414,14 @@ LiveTennisDesklet.prototype = {
             this._appendGroupedMatches(inner, groups.live);
             any = true;
         }
-        if (groups.finished.length) {
-            inner.add_child(this._label(_("Recently finished"), "lt-section-label"));
-            this._appendGroupedMatches(inner, groups.finished);
-            any = true;
-        }
         if (groups.upcoming.length) {
             inner.add_child(this._label(_("Upcoming"), "lt-section-label"));
             this._appendGroupedMatches(inner, groups.upcoming);
+            any = true;
+        }
+        if (groups.finished.length) {
+            inner.add_child(this._label(_("Recently finished"), "lt-section-label"));
+            this._appendGroupedMatches(inner, groups.finished);
             any = true;
         }
 
@@ -412,7 +444,7 @@ LiveTennisDesklet.prototype = {
         });
 
         let titleBox = new St.BoxLayout({ vertical: true, x_expand: true });
-        titleBox.add_child(this._label(_("Tennis Today"), "lt-title"));
+        titleBox.add_child(this._label(_("TennisToday"), "lt-title"));
         let stamp = this._fetching
             ? _("Updating…")
             : (this._updatedAt ? _("Updated %s").format(this._updatedAt) : _("Waiting for scores"));
@@ -670,5 +702,5 @@ LiveTennisDesklet.prototype = {
 };
 
 function main(metadata, deskletId) {
-    return new LiveTennisDesklet(metadata, deskletId);
+    return new TennisTodayDesklet(metadata, deskletId);
 }

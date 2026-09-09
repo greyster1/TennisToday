@@ -25,7 +25,7 @@
         "section-matches": {
             "type": "section",
             "title": "Matches",
-            "keys": ["show-completed", "max-completed", "show-upcoming", "max-upcoming", "max-live"]
+            "keys": ["max-live", "show-upcoming", "max-upcoming", "show-completed", "max-completed"]
         },
         "section-layout": {
             "type": "section",
@@ -84,16 +84,16 @@
     },
     "show-upcoming": {
         "type": "switch",
-        "default": false,
-        "description": "Show upcoming matches"
+        "default": true,
+        "description": "Show upcoming matches today"
     },
     "max-upcoming": {
         "type": "spinbutton",
-        "default": 4,
+        "default": 12,
         "min": 0,
         "max": 20,
         "step": 1,
-        "description": "Max upcoming matches",
+        "description": "Max upcoming matches today",
         "dependency": "show-upcoming"
     },
     "max-live": {
