@@ -415,11 +415,17 @@ TennisTodayDesklet.prototype = {
             any = true;
         }
         if (groups.upcoming.length) {
+            if (any) {
+                inner.add_child(this._sectionRule());
+            }
             inner.add_child(this._label(_("Upcoming"), "lt-section-label"));
             this._appendGroupedMatches(inner, groups.upcoming);
             any = true;
         }
         if (groups.finished.length) {
+            if (any) {
+                inner.add_child(this._sectionRule());
+            }
             inner.add_child(this._label(_("Recently finished"), "lt-section-label"));
             this._appendGroupedMatches(inner, groups.finished);
             any = true;
@@ -435,6 +441,14 @@ TennisTodayDesklet.prototype = {
             scroll.add_child(inner);
         }
         this._root.add_child(scroll);
+    },
+
+    _sectionRule: function () {
+        return new St.Widget({
+            style_class: "lt-section-rule",
+            x_expand: true,
+            height: 1
+        });
     },
 
     _buildHeader: function () {

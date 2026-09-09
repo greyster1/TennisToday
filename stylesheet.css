@@ -47,6 +47,13 @@
     color: #f4ffd0;
 }
 
+.lt-section-rule {
+    background-color: rgba(201, 227, 138, 0.7);
+    height: 1px;
+    min-height: 1px;
+    max-height: 1px;
+}
+
 .lt-section-label {
     color: rgba(201, 227, 138, 0.7);
     font-size: 8pt;
