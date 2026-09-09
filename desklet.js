@@ -19,8 +19,6 @@ const Gettext = imports.gettext;
 
 const UUID = "TennisToday@greyster1";
 const ESPN_URL = "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=tennis";
-const ESPN_ATP_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/tennis/atp/scoreboard";
-const ESPN_WTA_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/tennis/wta/scoreboard";
 const ESPN_PAGE = "https://www.espn.com/tennis/scoreboard";
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
@@ -35,32 +33,32 @@ function _(str) {
     return Gettext.dgettext(UUID, str);
 }
 
-function _isLocalToday(iso) {
-    if (!iso) {
-        return false;
+function _etYmd(ms) {
+    if (ms === undefined || ms === null || isNaN(ms)) {
+        return "";
     }
-    let d = new Date(iso);
-    if (isNaN(d.getTime())) {
-        return false;
+    try {
+        let parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit"
+        }).formatToParts(new Date(ms));
+        let y = "", mo = "", d = "";
+        for (let i = 0; i < parts.length; i++) {
+            if (parts[i].type === "year") {
+                y = parts[i].value;
+            } else if (parts[i].type === "month") {
+                mo = parts[i].value;
+            } else if (parts[i].type === "day") {
+                d = parts[i].value;
+            }
+        }
+        return y + "-" + mo + "-" + d;
+    } catch (e) {
+        let dt = new Date(ms);
+        return dt.getUTCFullYear() + "-" + String(dt.getUTCMonth() + 1).padStart(2, "0") + "-" + String(dt.getUTCDate()).padStart(2, "0");
     }
-    let now = new Date();
-    return d.getFullYear() === now.getFullYear()
-        && d.getMonth() === now.getMonth()
-        && d.getDate() === now.getDate();
-}
-
-function _inUpcomingWindow(startMs) {
-    if (isNaN(startMs)) {
-        return true;
-    }
-    let now = Date.now();
-    return startMs >= now - 12 * 3600 * 1000 && startMs <= now + 36 * 3600 * 1000;
-}
-
-function _matchKey(m) {
-    let names = (m.teams || []).map(function (t) { return t.name || ""; });
-    names.sort();
-    return (m.tournament || "") + "::" + names.join("|");
 }
 
 function _isGrandSlam(name) {
@@ -167,7 +165,7 @@ function _parseEvent(event, tour) {
         link: link,
         start: event.date || "",
         startMs: event.date ? Date.parse(event.date) : NaN,
-        isToday: _isLocalToday(event.date)
+        isToday: _etYmd(event.date ? Date.parse(event.date) : NaN) === _etYmd(Date.now())
     };
 }
 
@@ -184,114 +182,6 @@ function parseEspnHeader(json) {
                 matches.push(_parseEvent(events[j], tour));
             }
         }
-    }
-    return matches;
-}
-
-function _parseScoreboardCompetition(c, event, tour, groupingName) {
-    let st = (c.status && c.status.type) || {};
-    if (st.state !== "in") {
-        return null;
-    }
-    let competitors = (c.competitors || []).slice();
-    competitors.sort(function (a, b) {
-        return (a.order || 0) - (b.order || 0);
-    });
-    let teams = competitors.map(function (p) {
-        let ath = p.athlete || {};
-        let lines = (p.linescores || []).map(function (ls) {
-            return {
-                value: ls.setScore != null ? ls.setScore : ls.value,
-                tiebreak: ls.tieBreakScore || ls.tiebreak || null,
-                winner: !!ls.winner
-            };
-        });
-        let rank = p.curatedRank || {};
-        return {
-            name: ath.displayName || p.displayName || ath.shortName || p.abbreviation || "TBD",
-            seed: p.tournamentSeed || rank.current || null,
-            country: _countryFromLogo((ath.flag && ath.flag.href) || p.logo),
-            score: p.score || "",
-            linescores: lines,
-            serving: !!p.possession,
-            winner: !!p.winner,
-            isDoubles: p.type === "team" || !p.athlete
-        };
-    });
-    let ctype = c.type || {};
-    let eventType = ctype.text || groupingName || "";
-    let isDoubles = teams.some(function (t) {
-            return t.isDoubles || (t.name && t.name.indexOf(" / ") !== -1);
-        })
-        || /doubles/i.test(eventType)
-        || /doubles/i.test(ctype.slug || "");
-    let notes = c.notes || [];
-    let roundName = (c.round && c.round.displayName) || "";
-    let courtName = (c.venue && c.venue.court) || "";
-    if (notes.length && notes[0].type) {
-        let dash = String(notes[0].type).indexOf(" - ");
-        if (dash >= 0) {
-            if (!roundName) {
-                roundName = notes[0].type.substring(0, dash);
-            }
-            if (!courtName) {
-                courtName = notes[0].type.substring(dash + 3);
-            }
-        }
-    }
-    let tournamentName = event.name || event.shortName || "";
-    let tourCode = String(tour || "").toUpperCase();
-    let slam = _isGrandSlam(tournamentName);
-    let start = c.date || c.startDate || event.date || "";
-    let link = "";
-    if (c.links && c.links.length) {
-        link = c.links[0].href || "";
-    } else if (event.links && event.links.length) {
-        link = event.links[0].href || "";
-    }
-    return {
-        id: String(c.id || c.uid || ""),
-        tour: tourCode,
-        isGrandSlam: slam,
-        badge: slam ? "Grand Slam" : tourCode,
-        tournament: tournamentName,
-        location: (c.venue && c.venue.fullName) || (event.venue && event.venue.fullName) || "",
-        roundName: roundName,
-        courtName: courtName,
-        eventType: eventType,
-        status: "Live",
-        statusCode: "in",
-        summary: (st.detail || st.shortDetail || st.description || "").toString(),
-        leadText: notes.length ? (notes[0].text || "") : "",
-        teams: teams,
-        isDoubles: isDoubles,
-        recent: !!c.recent,
-        link: link,
-        start: start,
-        startMs: start ? Date.parse(start) : NaN,
-        isToday: _isLocalToday(start)
-    };
-}
-
-function parseEspnScoreboardLive(json, tour) {
-    let matches = [];
-    function walk(node, event) {
-        let groupingName = (node.grouping && node.grouping.displayName) || "";
-        let comps = node.competitions || [];
-        for (let i = 0; i < comps.length; i++) {
-            let parsed = _parseScoreboardCompetition(comps[i], event, tour, groupingName);
-            if (parsed) {
-                matches.push(parsed);
-            }
-        }
-        let kids = node.groupings || [];
-        for (let k = 0; k < kids.length; k++) {
-            walk(kids[k], event);
-        }
-    }
-    let events = (json && json.events) || [];
-    for (let e = 0; e < events.length; e++) {
-        walk(events[e], events[e]);
     }
     return matches;
 }
@@ -468,11 +358,19 @@ TennisTodayDesklet.prototype = {
             if (m.isDoubles && !this.showDoubles) {
                 continue;
             }
-            if (m.status === "Live") {
-                live.push(m);
-            } else if (m.status === "Finished") {
+            let now = Date.now();
+            let startMs = m.startMs;
+            let started = !isNaN(startMs) && startMs <= now;
+            let startDayEt = _etYmd(startMs);
+            let todayEt = _etYmd(now);
+            let yesterdayEt = _etYmd(now - 24 * 3600 * 1000);
+            let overnight = started && startDayEt === yesterdayEt && startDayEt !== todayEt;
+
+            if (m.status === "Finished") {
                 finished.push(m);
-            } else if (m.status === "Upcoming" && _inUpcomingWindow(m.startMs)) {
+            } else if (m.status === "Live" || overnight) {
+                live.push(m);
+            } else if (m.status === "Upcoming" && (isNaN(startMs) || startDayEt === todayEt)) {
                 upcoming.push(m);
             }
         }
@@ -799,104 +697,62 @@ TennisTodayDesklet.prototype = {
         });
     },
 
-    _fetchJson: function (url, useUa, callback) {
-        let message = Soup.Message.new("GET", url);
-        try {
-            if (useUa) {
-                message.request_headers.append("User-Agent", USER_AGENT);
-            }
-            message.request_headers.append("Accept", "application/json");
-        } catch (e) {
-            global.logError(UUID + " header error: " + e);
-        }
-        if (IS_SOUP_2) {
-            this._httpSession.queue_message(message, (session, msg) => {
-                let body = null;
-                let status = msg ? msg.status_code : 0;
-                if (msg && status === 200 && msg.response_body) {
-                    body = msg.response_body.data;
-                }
-                let json = null;
-                if (body) {
-                    try {
-                        json = JSON.parse(body);
-                    } catch (e) {
-                        global.logError(UUID + " parse error: " + e);
-                    }
-                }
-                callback(json, status);
-            });
-        } else {
-            this._httpSession.send_and_read_async(message, Soup.MessagePriority.NORMAL, null, (session, result) => {
-                let json = null;
-                let status = 0;
-                try {
-                    status = message.get_status();
-                    if (status === 200) {
-                        let bytes = this._httpSession.send_and_read_finish(result);
-                        let body = ByteArray.toString(bytes.get_data());
-                        json = JSON.parse(body);
-                    }
-                } catch (e) {
-                    global.logError(UUID + " fetch error: " + e);
-                }
-                callback(json, status);
-            });
-        }
-    },
-
     _fetch: function () {
         if (this._fetching || !this._httpSession) {
             return;
         }
         this._fetching = true;
-        this._pending = 3;
-        this._bufHeader = null;
-        this._bufLive = [];
         this._render();
-        this._fetchJson(ESPN_URL, true, (json) => {
-            this._bufHeader = json;
-            this._onPart();
-        });
-        this._fetchJson(ESPN_ATP_SCOREBOARD, false, (json) => {
-            if (json) {
-                this._bufLive = this._bufLive.concat(parseEspnScoreboardLive(json, "ATP"));
-            }
-            this._onPart();
-        });
-        this._fetchJson(ESPN_WTA_SCOREBOARD, false, (json) => {
-            if (json) {
-                this._bufLive = this._bufLive.concat(parseEspnScoreboardLive(json, "WTA"));
-            }
-            this._onPart();
-        });
+
+        let message = Soup.Message.new("GET", ESPN_URL);
+        try {
+            message.request_headers.append("User-Agent", USER_AGENT);
+            message.request_headers.append("Accept", "application/json");
+        } catch (e) {
+            global.logError(UUID + " header error: " + e);
+        }
+
+        if (IS_SOUP_2) {
+            this._httpSession.queue_message(message, (session, msg) => {
+                let body = null;
+                if (msg && msg.status_code === 200 && msg.response_body) {
+                    body = msg.response_body.data;
+                }
+                this._onBody(body, msg ? msg.status_code : 0);
+            });
+        } else {
+            this._httpSession.send_and_read_async(message, Soup.MessagePriority.NORMAL, null, (session, result) => {
+                let body = null;
+                let status = 0;
+                try {
+                    status = message.get_status();
+                    if (status === 200) {
+                        let bytes = this._httpSession.send_and_read_finish(result);
+                        body = ByteArray.toString(bytes.get_data());
+                    }
+                } catch (e) {
+                    global.logError(UUID + " fetch error: " + e);
+                }
+                this._onBody(body, status);
+            });
+        }
     },
 
-    _onPart: function () {
-        this._pending -= 1;
-        if (this._pending > 0) {
+    _onBody: function (body, status) {
+        this._fetching = false;
+        if (!body) {
+            this._error = _("Could not fetch scores") + (status ? " (" + status + ")" : "");
+            this._render();
             return;
         }
-        this._fetching = false;
         try {
-            let header = this._bufHeader ? parseEspnHeader(this._bufHeader) : [];
-            let live = this._bufLive || [];
-            let seen = {};
-            for (let i = 0; i < live.length; i++) {
-                seen[_matchKey(live[i])] = true;
-            }
-            let rest = [];
-            for (let j = 0; j < header.length; j++) {
-                if (!seen[_matchKey(header[j])]) {
-                    rest.push(header[j]);
-                }
-            }
-            this._matches = live.concat(rest);
-            this._error = live.length || rest.length ? null : _("Could not fetch scores");
+            let json = JSON.parse(body);
+            this._matches = parseEspnHeader(json);
+            this._error = null;
             this._updatedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         } catch (e) {
             this._error = _("Invalid score data");
-            global.logError(UUID + " merge error: " + e);
+            global.logError(UUID + " parse error: " + e);
         }
         this._render();
     },
