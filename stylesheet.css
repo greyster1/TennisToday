@@ -155,11 +155,15 @@
     padding-left: 6px;
 }
 
+.lt-set-cell {
+    width: 28px;
+    min-width: 28px;
+}
+
 .lt-set {
     color: #e8efe4;
     font-size: 10pt;
     font-weight: bold;
-    padding: 0 1px;
 }
 
 .lt-set-win {

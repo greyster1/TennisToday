@@ -6,6 +6,7 @@
 
 const Desklet = imports.ui.desklet;
 const St = imports.gi.St;
+const Clutter = imports.gi.Clutter;
 const Soup = imports.gi.Soup;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
@@ -22,7 +23,7 @@ const ESPN_URL = "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=
 const ESPN_PAGE = "https://www.espn.com/tennis/scoreboard";
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
-const SET_COL_PX = 22;
+const SET_COL_PX = 28;
 const SCORE_FIT_BASE_PX = 400;
 const CHROME_PX = 36;
 const SCORE_GUTTER_PX = 16;
@@ -595,12 +596,12 @@ TennisTodayDesklet.prototype = {
         let scoreBox = new St.BoxLayout({
             vertical: false,
             style_class: "lt-score-box",
-            x_expand: false,
-            style: "spacing: 2px;"
+            x_expand: false
         });
-        if (maxSets > 0 && team.linescores && team.linescores.length) {
+        if (maxSets > 0) {
+            let lines = team.linescores || [];
             for (let i = 0; i < maxSets; i++) {
-                let ls = team.linescores[i];
+                let ls = lines[i];
                 let text = " ";
                 let cls = "lt-set";
                 let markup = false;
@@ -609,13 +610,21 @@ TennisTodayDesklet.prototype = {
                         text = this._tiebreakMarkup(ls.value, ls.tiebreak);
                         markup = true;
                     } else {
-                        text = String(ls.value);
+                        text = String(Math.round(Number(ls.value)));
                     }
                     if (ls.winner) {
                         cls += " lt-set-win";
                     }
                 }
-                scoreBox.add_child(this._label(text, cls, false, true, markup));
+                let cell = new St.Bin({
+                    style_class: "lt-set-cell",
+                    x_expand: false,
+                    x_align: Clutter.ActorAlign.END,
+                    y_align: Clutter.ActorAlign.CENTER
+                });
+                cell.set_width(SET_COL_PX);
+                cell.set_child(this._label(text, cls, false, true, markup));
+                scoreBox.add_child(cell);
             }
         } else if (team.score) {
             scoreBox.add_child(this._label(this._scoreLineMarkup(team.score), "lt-score-line", false, true, true));
