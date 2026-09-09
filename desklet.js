@@ -47,6 +47,17 @@ function _isLocalToday(iso) {
         && d.getDate() === now.getDate();
 }
 
+function _isGrandSlam(name) {
+    let n = String(name || "").toLowerCase();
+    return n.indexOf("us open") !== -1
+        || n.indexOf("u.s. open") !== -1
+        || n.indexOf("u.s.open") !== -1
+        || n.indexOf("australian open") !== -1
+        || n.indexOf("french open") !== -1
+        || n.indexOf("roland garros") !== -1
+        || n.indexOf("wimbledon") !== -1;
+}
+
 function _countryFromLogo(url) {
     if (!url) {
         return "";
@@ -117,10 +128,13 @@ function _parseEvent(event, tour) {
         link = event.links[0].href || "";
     }
 
+    let tournamentName = event.name || event.shortName || "";
+    let tourCode = String(tour || "").toUpperCase();
     return {
         id: String(event.id || event.competitionId || event.uid || ""),
-        tour: String(tour || "").toUpperCase(),
-        tournament: event.name || event.shortName || "",
+        tour: tourCode,
+        badge: _isGrandSlam(tournamentName) ? "Grand Slam" : tourCode,
+        tournament: tournamentName,
         location: event.location || "",
         roundName: roundName,
         courtName: courtName,
@@ -503,13 +517,16 @@ TennisTodayDesklet.prototype = {
             vertical: false,
             style_class: "lt-tournament-row"
         });
+        let badge = match.badge || match.tour;
         let tourClass = "lt-tour-other";
-        if (match.tour === "ATP") {
+        if (badge === "Grand Slam") {
+            tourClass = "lt-tour-slam";
+        } else if (match.tour === "ATP") {
             tourClass = "lt-tour-atp";
         } else if (match.tour === "WTA") {
             tourClass = "lt-tour-wta";
         }
-        row.add_child(this._label(match.tour, "lt-tour-badge " + tourClass));
+        row.add_child(this._label(badge, "lt-tour-badge " + tourClass));
         let name = match.tournament;
         if (match.location) {
             name += "  ·  " + match.location;
