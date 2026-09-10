@@ -41,7 +41,7 @@
 
     "app-version": {
         "type": "label",
-        "description": "Version: v1.0.7"
+        "description": "Version: v1.0.8"
     },
 
     "enable-atp": {

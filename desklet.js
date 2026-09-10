@@ -202,6 +202,54 @@ function _countryFromLogo(url) {
     return m ? m[1].toUpperCase() : "";
 }
 
+function _setIsComplete(a, b) {
+    let va = Number(a);
+    let vb = Number(b);
+    if (isNaN(va) || isNaN(vb)) {
+        return false;
+    }
+    let hi = Math.max(va, vb);
+    let lo = Math.min(va, vb);
+    return hi >= 7 || (hi >= 6 && hi - lo >= 2);
+}
+
+function _markSetWinners(teams) {
+    if (!teams || teams.length < 2) {
+        return;
+    }
+    let a = teams[0].linescores || [];
+    let b = teams[1].linescores || [];
+    let n = Math.max(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+        let la = a[i];
+        let lb = b[i];
+        if (!la || !lb || la.value == null || la.value === "" || lb.value == null || lb.value === "") {
+            continue;
+        }
+        if (!_setIsComplete(la.value, lb.value)) {
+            la.winner = false;
+            lb.winner = false;
+            continue;
+        }
+        let va = Number(la.value);
+        let vb = Number(lb.value);
+        if (va === vb) {
+            let ta = Number(la.tiebreak);
+            let tb = Number(lb.tiebreak);
+            if (!isNaN(ta) && !isNaN(tb) && ta !== tb) {
+                la.winner = ta > tb;
+                lb.winner = tb > ta;
+            } else {
+                la.winner = false;
+                lb.winner = false;
+            }
+        } else {
+            la.winner = va > vb;
+            lb.winner = vb > va;
+        }
+    }
+}
+
 function _noteParts(c) {
     let notes = (c && c.notes) || [];
     let typeText = (notes[0] && notes[0].type) || "";
@@ -782,6 +830,7 @@ TennisTodayDesklet.prototype = {
             box.add_child(this._label(metaBits.join("  ·  "), "lt-match-meta"));
         }
 
+        _markSetWinners(match.teams);
         let maxSets = 0;
         for (let i = 0; i < match.teams.length; i++) {
             maxSets = Math.max(maxSets, (match.teams[i].linescores || []).length);
