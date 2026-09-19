@@ -991,15 +991,16 @@ TennisTodayDesklet.prototype = {
     },
 
     _headerUrls: function () {
-        // WTA header is ~64KB of 125s. Combined tennis header is ~78KB.
-        // Slam-only uses the ~14KB ATP header; women's slam upcoming comes from dated core.
+        // ESPN header API returns WTA or ATP separately; need both URLs to get both tours.
+        // WTA header is ~64KB, ATP header is ~14KB. Grand Slam upcoming comes from dated core.
+        let urls = [];
         if (this.enableWta) {
-            return [ESPN_URL];
+            urls.push(ESPN_URL);
         }
         if (this.enableAtp || this.enableGrandSlam) {
-            return [ESPN_URL + "&league=atp"];
+            urls.push(ESPN_URL + "&league=atp");
         }
-        return [];
+        return urls;
     },
 
     _fetchHeaders: function (done) {
