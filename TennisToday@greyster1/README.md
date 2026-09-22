@@ -38,6 +38,32 @@ Right-click the desklet for **Refresh now** and **Open ESPN scoreboard**.
 Install from **System Settings → Desklets → Download**, then add TennisToday to
 the desktop from the **Manage** tab.
 
+### Manual install from this repository
+
+Cinnamon loads desklets from `~/.local/share/cinnamon/desklets/`, and the folder
+name must match the UUID `TennisToday@greyster1`. The desklet source lives in
+`TennisToday@greyster1/files/TennisToday@greyster1/`, so copy that directory:
+
+```bash
+git clone https://github.com/greyster1/TennisToday.git /tmp/TennisToday
+mkdir -p ~/.local/share/cinnamon/desklets
+cp -r "/tmp/TennisToday/TennisToday@greyster1/files/TennisToday@greyster1" ~/.local/share/cinnamon/desklets/
+```
+
+To track the repository instead, clone it somewhere permanent and symlink it, so
+`git pull` updates the installed desklet in place:
+
+```bash
+git clone https://github.com/greyster1/TennisToday.git ~/src/TennisToday
+mkdir -p ~/.local/share/cinnamon/desklets
+ln -s "$HOME/src/TennisToday/TennisToday@greyster1/files/TennisToday@greyster1" \
+  ~/.local/share/cinnamon/desklets/TennisToday@greyster1
+```
+
+Either way, restart Cinnamon so it picks up the new folder (**Ctrl+Alt+Esc**, or
+log out and back in), then add TennisToday from **System Settings → Desklets**.
+Cloning alone does not put it on the desktop.
+
 Desklets sit on the wallpaper, behind open windows — use show-desktop
 (`Super+D`) if you cannot see it.
 
