@@ -1,49 +1,63 @@
 {
     "layout": {
         "type": "layout",
-        "pages": ["page-tours", "page-display"],
+        "pages": [
+            "page-tours",
+            "page-display"
+        ],
         "page-tours": {
             "type": "page",
             "title": "Tours",
-            "sections": ["section-tours", "section-refresh", "section-version"]
+            "sections": [
+                "section-tours",
+                "section-refresh"
+            ]
         },
         "page-display": {
             "type": "page",
             "title": "Display",
-            "sections": ["section-matches", "section-layout", "section-version"]
+            "sections": [
+                "section-matches",
+                "section-layout"
+            ]
         },
         "section-tours": {
             "type": "section",
             "title": "Tours",
-            "keys": ["enable-atp", "enable-wta", "enable-grand-slam", "show-doubles"]
+            "keys": [
+                "enable-atp",
+                "enable-wta",
+                "enable-grand-slam",
+                "show-doubles"
+            ]
         },
         "section-refresh": {
             "type": "section",
             "title": "Updates",
-            "keys": ["refresh-seconds"]
+            "keys": [
+                "refresh-seconds"
+            ]
         },
         "section-matches": {
             "type": "section",
             "title": "Matches",
-            "keys": ["max-live", "show-upcoming", "max-upcoming", "show-completed", "max-completed"]
+            "keys": [
+                "max-live",
+                "show-upcoming",
+                "max-upcoming",
+                "show-completed",
+                "max-completed"
+            ]
         },
         "section-layout": {
             "type": "section",
             "title": "Layout",
-            "keys": ["desklet-width", "max-height"]
-        },
-        "section-version": {
-            "type": "section",
-            "title": " ",
-            "keys": ["app-version"]
+            "keys": [
+                "desklet-width",
+                "max-height"
+            ]
         }
     },
-
-    "app-version": {
-        "type": "label",
-        "description": "Version: v1.0.8"
-    },
-
     "enable-atp": {
         "type": "switch",
         "default": true,
@@ -67,7 +81,7 @@
     "refresh-seconds": {
         "type": "spinbutton",
         "default": 60,
-        "min": 15,
+        "min": 30,
         "max": 600,
         "step": 5,
         "units": "seconds",

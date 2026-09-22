@@ -6,10 +6,10 @@
 
 const Desklet = imports.ui.desklet;
 const St = imports.gi.St;
+const Clutter = imports.gi.Clutter;
 const Soup = imports.gi.Soup;
 const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
-const Gtk = imports.gi.Gtk;
 const Pango = imports.gi.Pango;
 const Mainloop = imports.mainloop;
 const Settings = imports.ui.settings;
@@ -21,7 +21,7 @@ const UUID = "TennisToday@greyster1";
 const ESPN_URL = "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=tennis";
 const ESPN_CORE = "https://sports.core.api.espn.com/v2/sports/tennis/leagues";
 const ESPN_PAGE = "https://www.espn.com/tennis/scoreboard";
-const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const USER_AGENT = "TennisToday-desklet (Cinnamon; +https://github.com/greyster1/TennisToday)";
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
 const SET_COL_PX = 28;
 const POINTS_COL_PX = 36;
@@ -31,6 +31,7 @@ const CHROME_PX = 36;
 const SCORE_GUTTER_PX = 16;
 const MAX_BOARD_FINISHED = 16;
 const LIST_INTERVAL_MS = 180000;
+const MIN_REFRESH_SECONDS = 30;
 
 Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
 
@@ -93,12 +94,9 @@ function _httpsRef(ref) {
     return String(ref || "").replace(/^http:\/\//, "https://");
 }
 
-function _bustCache(url) {
-    let u = String(url || "");
-    if (!u || u.indexOf("_nocache=") !== -1) {
-        return u;
-    }
-    return u + (u.indexOf("?") >= 0 ? "&" : "?") + "_nocache=1";
+function _safeLink(url) {
+    let s = String(url || "");
+    return /^https?:\/\//i.test(s) ? s : "";
 }
 
 function _eventIdFromRef(ref) {
@@ -158,17 +156,8 @@ function _ordinalSet(period) {
     if (!n || n < 1) {
         return "";
     }
-    let mod100 = n % 100;
-    let mod10 = n % 10;
-    let suf = "th";
-    if (mod100 !== 11 && mod10 === 1) {
-        suf = "st";
-    } else if (mod100 !== 12 && mod10 === 2) {
-        suf = "nd";
-    } else if (mod100 !== 13 && mod10 === 3) {
-        suf = "rd";
-    }
-    return n + suf + " Set";
+    // Translators: %d is the set number, e.g. "Set 3".
+    return _("Set %d").format(n);
 }
 
 function _liveSummary(detail, period) {
@@ -313,7 +302,7 @@ function _parseEvent(event, tour) {
             };
         });
         return {
-            name: c.displayName || c.name || c.abbreviation || "TBD",
+            name: c.displayName || c.name || c.abbreviation || _("TBD"),
             seed: c.tournamentSeed || null,
             athleteId: String(c.id || ""),
             country: _countryFromLogo(c.logo),
@@ -340,9 +329,9 @@ function _parseEvent(event, tour) {
         status = "Finished";
     }
 
-    let link = event.link || "";
+    let link = _safeLink(event.link);
     if (!link && event.links && event.links.length) {
-        link = event.links[0].href || "";
+        link = _safeLink(event.links[0].href);
     }
 
     let tournamentName = event.name || event.shortName || "";
@@ -418,6 +407,9 @@ TennisTodayDesklet.prototype = {
         this._updatedAt = null;
         this._timer = null;
         this._httpSession = null;
+        this._cancellable = null;
+        this._destroyed = false;
+        this._serveGicon = undefined;
         this._fetching = false;
         this._boardCache = [];
         this._lastBoardAt = 0;
@@ -441,6 +433,7 @@ TennisTodayDesklet.prototype = {
     },
 
     _initHttp: function () {
+        this._cancellable = new Gio.Cancellable();
         if (IS_SOUP_2) {
             this._httpSession = new Soup.SessionAsync();
             Soup.Session.prototype.add_feature.call(this._httpSession, new Soup.ProxyResolverDefault());
@@ -498,6 +491,7 @@ TennisTodayDesklet.prototype = {
     },
 
     _openUrl: function (url) {
+        url = _safeLink(url);
         if (!url) {
             return;
         }
@@ -664,7 +658,7 @@ TennisTodayDesklet.prototype = {
     },
 
     _render: function () {
-        if (!this._root) {
+        if (this._destroyed || !this._root) {
             return;
         }
         this._root.destroy_all_children();
@@ -686,7 +680,7 @@ TennisTodayDesklet.prototype = {
             style: "max-height: " + (this.maxHeight || 720) + "px;",
             x_expand: true
         });
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
+        scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
         scroll.overlay_scrollbars = true;
         scroll.clip_to_allocation = false;
 
@@ -790,15 +784,17 @@ TennisTodayDesklet.prototype = {
             style_class: "lt-tournament-row"
         });
         let badge = match.badge || match.tour;
+        let badgeText = badge;
         let tourClass = "lt-tour-other";
         if (badge === "Grand Slam") {
             tourClass = "lt-tour-slam";
+            badgeText = _("Grand Slam");
         } else if (match.tour === "ATP") {
             tourClass = "lt-tour-atp";
         } else if (match.tour === "WTA") {
             tourClass = "lt-tour-wta";
         }
-        row.add_child(this._label(badge, "lt-tour-badge " + tourClass));
+        row.add_child(this._label(badgeText, "lt-tour-badge " + tourClass));
         let name = match.tournament;
         if (match.location) {
             name += "  ·  " + match.location;
@@ -850,10 +846,11 @@ TennisTodayDesklet.prototype = {
         } else if (match.status === "Finished") {
             statusClass = "lt-status-finished";
         }
-        let statusText = match.status;
+        let statusText = _("Finished");
         if (match.status === "Live") {
             let liveBit = _liveSummary(match.summary, maxSets);
-            statusText = liveBit ? (_("LIVE") + " · " + liveBit) : _("LIVE");
+            // Translators: %s is the current set, e.g. "LIVE · Set 3".
+            statusText = liveBit ? _("LIVE · %s").format(liveBit) : _("LIVE");
         } else if (match.status === "Upcoming") {
             statusText = _formatMatchTime(match.startMs) || match.summary || _("Upcoming");
         }
@@ -863,12 +860,26 @@ TennisTodayDesklet.prototype = {
             box.connect("button-press-event", (actor, event) => {
                 if (event.get_button() === 1) {
                     this._openUrl(match.link);
-                    return true;
+                    return Clutter.EVENT_STOP;
                 }
-                return false;
+                return Clutter.EVENT_PROPAGATE;
             });
         }
         return box;
+    },
+
+    _serveIcon: function () {
+        if (this._serveGicon === undefined) {
+            this._serveGicon = null;
+            try {
+                this._serveGicon = new Gio.FileIcon({
+                    file: Gio.File.new_for_path(this.metadata.path + "/icon.png")
+                });
+            } catch (e) {
+                global.logError(UUID + " serve icon error: " + e);
+            }
+        }
+        return this._serveGicon;
     },
 
     _serveMarker: function (serving) {
@@ -878,21 +889,10 @@ TennisTodayDesklet.prototype = {
         });
         wrap.set_width(SERVE_COL_PX);
         if (serving) {
-            let icon = null;
-            try {
-                let path = this.metadata.path + "/tennis-icon.png";
-                let file = Gio.File.new_for_path(path);
-                if (file.query_exists(null)) {
-                    icon = new St.Icon({
-                        gicon: new Gio.FileIcon({ file: file }),
-                        icon_size: 14,
-                        style_class: "lt-serve-ball"
-                    });
-                }
-            } catch (e) {
-                icon = null;
-            }
-            wrap.set_child(icon || this._label("●", "lt-serve", false, true));
+            let gicon = this._serveIcon();
+            wrap.set_child(gicon
+                ? new St.Icon({ gicon: gicon, icon_size: 14, style_class: "lt-serve-ball" })
+                : this._label("●", "lt-serve", false, true));
         }
         return wrap;
     },
@@ -932,7 +932,8 @@ TennisTodayDesklet.prototype = {
                         text = this._tiebreakMarkup(ls.value, ls.tiebreak);
                         markup = true;
                     } else {
-                        text = String(Math.round(Number(ls.value)));
+                        let num = Number(ls.value);
+                        text = isNaN(num) ? String(ls.value) : String(Math.round(num));
                     }
                     if (ls.winner) {
                         cls += " lt-set-win";
@@ -972,10 +973,10 @@ TennisTodayDesklet.prototype = {
             Mainloop.source_remove(this._timer);
             this._timer = null;
         }
-        let seconds = Math.max(10, parseInt(this.refreshSeconds, 10) || 30);
+        let seconds = Math.max(MIN_REFRESH_SECONDS, parseInt(this.refreshSeconds, 10) || 60);
         this._timer = Mainloop.timeout_add_seconds(seconds, () => {
             this._fetch();
-            return true;
+            return GLib.SOURCE_CONTINUE;
         });
     },
 
@@ -1012,7 +1013,7 @@ TennisTodayDesklet.prototype = {
         let left = urls.length;
         let all = [];
         for (let i = 0; i < urls.length; i++) {
-            this._fetchJson(urls[i], true, (json) => {
+            this._fetchJson(urls[i], (json) => {
                 if (json) {
                     all = all.concat(parseEspnHeader(json));
                 }
@@ -1029,17 +1030,17 @@ TennisTodayDesklet.prototype = {
         for (let i = 0; i < links.length; i++) {
             let rel = links[i].rel || [];
             let href = links[i].href || "";
-            if (href.indexOf("http") === 0 && rel.indexOf("desktop") !== -1) {
+            if (rel.indexOf("desktop") !== -1 && _safeLink(href)) {
                 return href;
             }
         }
-        return (links[0] && links[0].href) || "";
+        return _safeLink(links[0] && links[0].href);
     },
 
     _matchFromStub: function (stub, locToName, eventNames, status, summary) {
         let c = stub.comp;
         let location = (c.venue && c.venue.address && c.venue.address.summary) || "";
-        let tournament = eventNames[stub.eventId] || locToName[location] || location || "Tournament";
+        let tournament = eventNames[stub.eventId] || locToName[location] || location || _("Tournament");
         if (!this._matchTourEnabled(stub.league, tournament)) {
             return null;
         }
@@ -1067,7 +1068,7 @@ TennisTodayDesklet.prototype = {
             leadText: "",
             teams: competitors.map(function (p) {
                 return {
-                    name: p.name || "TBD",
+                    name: p.name || _("TBD"),
                     seed: p.tournamentSeed || null,
                     athleteId: String(p.id || ""),
                     athleteRef: p.athlete && p.athlete.$ref ? p.athlete.$ref : "",
@@ -1172,7 +1173,7 @@ TennisTodayDesklet.prototype = {
                 let day = dates[d];
                 // Dated event lists are a few hundred bytes. Do not GET /events/{id}:
                 // that resource inlines the whole tournament (~1MB).
-                this._fetchJson(ESPN_CORE + "/" + league + "/events?dates=" + day + "&limit=20", false, (json) => {
+                this._fetchJson(ESPN_CORE + "/" + league + "/events?dates=" + day + "&limit=20", (json) => {
                     let items = (json && json.items) || [];
                     let ids = [];
                     let seen = {};
@@ -1193,7 +1194,6 @@ TennisTodayDesklet.prototype = {
                     for (let x = 0; x < ids.length; x++) {
                         this._fetchJson(
                             ESPN_CORE + "/" + league + "/events/" + ids[x] + "/competitions?dates=" + day + "&limit=50",
-                            false,
                             (cjson) => {
                                 let comps = (cjson && cjson.items) || [];
                                 for (let c = 0; c < comps.length; c++) {
@@ -1353,7 +1353,7 @@ TennisTodayDesklet.prototype = {
             apply(null);
             return;
         }
-        this._fetchJson(statusRef, false, apply, true);
+        this._fetchJson(statusRef, apply, true);
     },
 
     _hydrateScores: function (rows, locToName, eventNames, done) {
@@ -1407,7 +1407,7 @@ TennisTodayDesklet.prototype = {
             }
             let st = (statusObj && statusObj.type) || {};
             let location = (c.venue && c.venue.address && c.venue.address.summary) || "";
-            let tournament = eventNames[stub.eventId] || locToName[location] || location || "Tournament";
+            let tournament = eventNames[stub.eventId] || locToName[location] || location || _("Tournament");
             if (!this._matchTourEnabled(stub.league, tournament)) {
                 done(null);
                 return;
@@ -1425,7 +1425,7 @@ TennisTodayDesklet.prototype = {
                     };
                 });
                 return {
-                    name: p.name || "TBD",
+                    name: p.name || _("TBD"),
                     seed: p.tournamentSeed || null,
                     athleteId: String(p.id || ""),
                     athleteRef: p.athlete && p.athlete.$ref ? p.athlete.$ref : "",
@@ -1473,7 +1473,7 @@ TennisTodayDesklet.prototype = {
             let sitRef = c.situation && c.situation.$ref
                 ? _httpsRef(c.situation.$ref)
                 : ESPN_CORE + "/" + stub.league + "/events/" + stub.eventId + "/competitions/" + c.id + "/situation";
-            this._fetchJson(sitRef, false, (json) => {
+            this._fetchJson(sitRef, (json) => {
                 serverId = _athleteIdFromRef(json && json.server && json.server.$ref);
                 finish();
             }, true);
@@ -1489,34 +1489,23 @@ TennisTodayDesklet.prototype = {
                 finish();
                 continue;
             }
-            this._fetchJson(lsRef, false, (json) => {
+            this._fetchJson(lsRef, (json) => {
                 linesById[p.id] = json;
                 finish();
             }, live);
         }
     },
 
-    _fetchJson: function (url, useUa, callback, live) {
-        if (live && url && url.indexOf("sports.core.api.espn.com") !== -1) {
-            url = _bustCache(url);
-        }
+    _fetchJson: function (url, callback, live) {
         let message = Soup.Message.new("GET", url);
         try {
-            if (useUa) {
-                message.request_headers.replace("User-Agent", USER_AGENT);
-            } else {
-                message.request_headers.replace("User-Agent", "curl/8.5.0");
-            }
+            message.request_headers.replace("User-Agent", USER_AGENT);
             message.request_headers.append("Accept", "application/json");
             if (live) {
                 message.request_headers.replace("Cache-Control", "no-cache");
             }
         } catch (e) {
-            try {
-                message.request_headers.append("User-Agent", useUa ? USER_AGENT : "curl/8.5.0");
-            } catch (e2) {
-                global.logError(UUID + " header error: " + e2);
-            }
+            global.logError(UUID + " header error: " + e);
         }
         if (IS_SOUP_2) {
             this._httpSession.queue_message(message, (session, msg) => {
@@ -1528,10 +1517,12 @@ TennisTodayDesklet.prototype = {
                 } catch (e) {
                     global.logError(UUID + " parse error: " + e);
                 }
-                callback(json);
+                if (!this._destroyed) {
+                    callback(json);
+                }
             });
         } else {
-            this._httpSession.send_and_read_async(message, Soup.MessagePriority.NORMAL, null, (session, result) => {
+            this._httpSession.send_and_read_async(message, Soup.MessagePriority.NORMAL, this._cancellable, (session, result) => {
                 let json = null;
                 try {
                     if (message.get_status() === 200) {
@@ -1539,9 +1530,14 @@ TennisTodayDesklet.prototype = {
                         json = JSON.parse(ByteArray.toString(bytes.get_data()));
                     }
                 } catch (e) {
-                    global.logError(UUID + " fetch error: " + e);
+                    // A cancelled request during teardown is expected, not an error.
+                    if (!this._destroyed) {
+                        global.logError(UUID + " fetch error: " + e);
+                    }
                 }
-                callback(json);
+                if (!this._destroyed) {
+                    callback(json);
+                }
             });
         }
     },
@@ -1695,7 +1691,7 @@ TennisTodayDesklet.prototype = {
         if (!this._countryPending[id]) {
             this._countryPending[id] = [];
             let url = ref || ("https://sports.core.api.espn.com/v2/sports/tennis/athletes/" + id);
-            this._fetchJson(_httpsRef(url), false, (json) => {
+            this._fetchJson(_httpsRef(url), (json) => {
                 let cc = this._countryFromAthlete(json);
                 this._countryById[id] = cc;
                 let wait = this._countryPending[id] || [];
@@ -1739,13 +1735,14 @@ TennisTodayDesklet.prototype = {
 
     _applyMatches: function (next) {
         try {
+            let error = next.length ? null : _("Could not fetch scores");
             let snap = this._snapshotMatches(next);
-            if (snap === this._lastSnapshot) {
+            if (snap === this._lastSnapshot && error === this._error) {
                 return;
             }
             this._lastSnapshot = snap;
             this._matches = next;
-            this._error = next.length ? null : _("Could not fetch scores");
+            this._error = error;
             this._updatedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         } catch (e) {
             this._error = _("Invalid score data");
@@ -1755,16 +1752,27 @@ TennisTodayDesklet.prototype = {
     },
 
     on_desklet_removed: function () {
+        this._destroyed = true;
         if (this._timer) {
             Mainloop.source_remove(this._timer);
             this._timer = null;
+        }
+        if (this._cancellable) {
+            this._cancellable.cancel();
+            this._cancellable = null;
         }
         if (this._httpSession) {
             try {
                 this._httpSession.abort();
             } catch (e) {
             }
+            this._httpSession = null;
         }
+        if (this.settings) {
+            this.settings.finalize();
+            this.settings = null;
+        }
+        this._root = null;
     }
 };
 
