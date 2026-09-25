@@ -31,6 +31,7 @@ const CHROME_PX = 36;
 const SCORE_GUTTER_PX = 16;
 const MAX_BOARD_FINISHED = 16;
 const LIST_INTERVAL_MS = 180000;
+const FETCH_WATCHDOG_MS = 120000;
 const MIN_REFRESH_SECONDS = 30;
 
 Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
@@ -136,6 +137,9 @@ function _formatPoints(raw) {
 }
 
 function _matchKey(m) {
+    if (m.compId) {
+        return "compId::" + m.compId;
+    }
     let names = (m.teams || []).map(function (t) { return t.name || ""; });
     names.sort();
     return (m.tournament || "") + "::" + names.join("|");
@@ -339,6 +343,7 @@ function _parseEvent(event, tour) {
     let slam = _isGrandSlam(tournamentName);
     return {
         id: String(event.id || event.competitionId || event.uid || ""),
+        compId: String(event.competitionId || event.id || ""),
         tour: tourCode,
         isGrandSlam: slam,
         badge: slam ? "Grand Slam" : tourCode,
@@ -411,6 +416,7 @@ TennisTodayDesklet.prototype = {
         this._destroyed = false;
         this._serveGicon = undefined;
         this._fetching = false;
+        this._fetchStartedAt = 0;
         this._boardCache = [];
         this._lastBoardAt = 0;
         this._lastSnapshot = "";
@@ -975,6 +981,10 @@ TennisTodayDesklet.prototype = {
         }
         let seconds = Math.max(MIN_REFRESH_SECONDS, parseInt(this.refreshSeconds, 10) || 60);
         this._timer = Mainloop.timeout_add_seconds(seconds, () => {
+            if (this._fetching && this._fetchStartedAt && (Date.now() - this._fetchStartedAt > FETCH_WATCHDOG_MS)) {
+                global.logError(UUID + " fetch stuck for " + Math.round((Date.now() - this._fetchStartedAt) / 1000) + "s, resetting");
+                this._fetching = false;
+            }
             this._fetch();
             return GLib.SOURCE_CONTINUE;
         });
@@ -1054,6 +1064,7 @@ TennisTodayDesklet.prototype = {
         let countryById = this._countryById;
         return {
             id: String(c.id || ""),
+            compId: String(c.id || ""),
             tour: stub.league === "wta" ? "WTA" : "ATP",
             isGrandSlam: slam,
             badge: slam ? "Grand Slam" : (stub.league === "wta" ? "WTA" : "ATP"),
@@ -1448,6 +1459,7 @@ TennisTodayDesklet.prototype = {
             }
             done({
                 id: String(c.id || ""),
+                compId: String(c.id || ""),
                 tour: stub.league === "wta" ? "WTA" : "ATP",
                 isGrandSlam: slam,
                 badge: slam ? "Grand Slam" : (stub.league === "wta" ? "WTA" : "ATP"),
@@ -1565,6 +1577,7 @@ TennisTodayDesklet.prototype = {
             return;
         }
         this._fetching = true;
+        this._fetchStartedAt = Date.now();
 
         this._fetchHeaders((headerMatches) => {
             this._fetchDatedBoard(headerMatches, (board) => {
