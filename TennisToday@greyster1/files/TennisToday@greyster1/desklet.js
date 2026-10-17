@@ -451,6 +451,7 @@ TennisTodayDesklet.prototype = {
         this._countryById = {};
         this._countryPending = {};
         this._scrollHeight = 0;
+        this._scrollView = null;
         this._moveTimer = null;
 
         this._initHttp();
@@ -735,6 +736,9 @@ TennisTodayDesklet.prototype = {
         if (this._destroyed || !this._root) {
             return;
         }
+        // Every score change rebuilds the list; keep the reader's place in it.
+        let keepScroll = this._scrollView ? this._scrollView.vscroll.adjustment.value : 0;
+        this._scrollView = null;
         this._root.destroy_all_children();
 
         let groups = this._selectedMatches();
@@ -800,6 +804,23 @@ TennisTodayDesklet.prototype = {
             scroll.add_child(inner);
         }
         this._root.add_child(scroll);
+        this._scrollView = scroll;
+        this._restoreScroll(scroll, keepScroll);
+    },
+
+    _restoreScroll: function (scroll, value) {
+        if (!(value > 0)) {
+            return;
+        }
+        let adj = scroll.vscroll.adjustment;
+        // The adjustment's range is only known once the new list is laid out.
+        let id = adj.connect("changed", () => {
+            if (adj.upper <= adj.page_size) {
+                return;
+            }
+            adj.disconnect(id);
+            adj.value = Math.min(value, adj.upper - adj.page_size);
+        });
     },
 
     _sectionRule: function () {
