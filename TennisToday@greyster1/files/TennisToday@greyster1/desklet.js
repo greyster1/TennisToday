@@ -452,6 +452,8 @@ TennisTodayDesklet.prototype = {
         this._countryPending = {};
         this._scrollHeight = 0;
         this._scrollView = null;
+        this._scrollRestoreId = 0;
+        this._actorSignals = [];
         this._moveTimer = null;
 
         this._initHttp();
@@ -460,8 +462,8 @@ TennisTodayDesklet.prototype = {
         this.setHeader(_("TennisToday"));
         this._populateContextMenu();
         if (this.actor) {
-            this.actor.connect("notify::y", () => this._onMoved());
-            this.actor.connect("notify::mapped", () => this._onMoved());
+            this._actorSignals.push(this.actor.connect("notify::y", () => this._onMoved()));
+            this._actorSignals.push(this.actor.connect("notify::mapped", () => this._onMoved()));
         }
         this._render();
         this._fetch();
@@ -738,6 +740,7 @@ TennisTodayDesklet.prototype = {
         }
         // Every score change rebuilds the list; keep the reader's place in it.
         let keepScroll = this._scrollView ? this._scrollView.vscroll.adjustment.value : 0;
+        this._dropScrollRestore();
         this._scrollView = null;
         this._root.destroy_all_children();
 
@@ -814,13 +817,20 @@ TennisTodayDesklet.prototype = {
         }
         let adj = scroll.vscroll.adjustment;
         // The adjustment's range is only known once the new list is laid out.
-        let id = adj.connect("changed", () => {
+        this._scrollRestoreId = adj.connect("changed", () => {
             if (adj.upper <= adj.page_size) {
                 return;
             }
-            adj.disconnect(id);
+            this._dropScrollRestore();
             adj.value = Math.min(value, adj.upper - adj.page_size);
         });
+    },
+
+    _dropScrollRestore: function () {
+        if (this._scrollRestoreId && this._scrollView) {
+            this._scrollView.vscroll.adjustment.disconnect(this._scrollRestoreId);
+        }
+        this._scrollRestoreId = 0;
     },
 
     _sectionRule: function () {
@@ -1867,6 +1877,13 @@ TennisTodayDesklet.prototype = {
 
     on_desklet_removed: function () {
         this._destroyed = true;
+        this._dropScrollRestore();
+        if (this.actor) {
+            for (let i = 0; i < this._actorSignals.length; i++) {
+                this.actor.disconnect(this._actorSignals[i]);
+            }
+        }
+        this._actorSignals = [];
         if (this._moveTimer) {
             Mainloop.source_remove(this._moveTimer);
             this._moveTimer = null;
