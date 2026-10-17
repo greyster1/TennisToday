@@ -460,6 +460,7 @@ TennisTodayDesklet.prototype = {
         this._populateContextMenu();
         if (this.actor) {
             this.actor.connect("notify::y", () => this._onMoved());
+            this.actor.connect("notify::mapped", () => this._onMoved());
         }
         this._render();
         this._fetch();
@@ -532,6 +533,9 @@ TennisTodayDesklet.prototype = {
     // otherwise push the bottom of the scroll area past the screen edge.
     _availableHeight: function () {
         let maxH = this.maxHeight || 720;
+        if (!this.actor || !this.actor.mapped) {
+            return maxH;
+        }
         try {
             let monitor = Main.layoutManager.findMonitorForActor(this.actor);
             let [, y] = this.actor.get_transformed_position();
