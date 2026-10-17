@@ -29,7 +29,8 @@ const SERVE_COL_PX = 22;
 const SCORE_FIT_BASE_PX = 400;
 const CHROME_PX = 36;
 const SCORE_GUTTER_PX = 16;
-const MAX_BOARD_FINISHED = 16;
+const RECENT_FINISHED_MS = 24 * 3600 * 1000;
+const UPCOMING_WINDOW_MS = 24 * 3600 * 1000;
 const LIST_INTERVAL_MS = 180000;
 const FETCH_WATCHDOG_MS = 120000;
 const MIN_REFRESH_SECONDS = 30;
@@ -66,6 +67,24 @@ function _etYmd(ms) {
         let dt = new Date(ms);
         return dt.getUTCFullYear() + "-" + String(dt.getUTCMonth() + 1).padStart(2, "0") + "-" + String(dt.getUTCDate()).padStart(2, "0");
     }
+}
+
+function _localYmd(ms) {
+    if (ms === undefined || ms === null || isNaN(ms)) {
+        return "";
+    }
+    let dt = new Date(ms);
+    return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+}
+
+function _recentlyFinished(startMs, now) {
+    return isNaN(startMs) || now - startMs <= RECENT_FINISHED_MS;
+}
+
+// ESPN's slate flips at ET midnight, which is mid-evening further west, so
+// upcoming is a rolling window rather than a calendar day.
+function _upcomingSoon(startMs, now) {
+    return isNaN(startMs) || Math.abs(startMs - now) <= UPCOMING_WINDOW_MS;
 }
 
 function _etCompact(ms) {
@@ -400,10 +419,10 @@ TennisTodayDesklet.prototype = {
         this.showDoubles = true;
         this.refreshSeconds = 60;
         this.showCompleted = true;
-        this.maxCompleted = 4;
+        this.maxCompleted = 40;
         this.showUpcoming = true;
-        this.maxUpcoming = 12;
-        this.maxLive = 12;
+        this.maxUpcoming = 40;
+        this.maxLive = 40;
         this.deskletWidth = 420;
         this.maxHeight = 720;
 
@@ -458,7 +477,7 @@ TennisTodayDesklet.prototype = {
         this.settings.bindProperty(Settings.BindingDirection.IN, "show-doubles", "showDoubles", this._onToursChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "refresh-seconds", "refreshSeconds", this._onRefreshSettingChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "show-completed", "showCompleted", this._onToursChanged, null);
-        this.settings.bindProperty(Settings.BindingDirection.IN, "max-completed", "maxCompleted", this._onSettingsChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "max-completed", "maxCompleted", this._onFinishedLimitChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "show-upcoming", "showUpcoming", this._onSettingsChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "max-upcoming", "maxUpcoming", this._onSettingsChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "max-live", "maxLive", this._onSettingsChanged, null);
@@ -480,6 +499,11 @@ TennisTodayDesklet.prototype = {
         this._finishedById = {};
         this._render();
         this._fetch(true);
+    },
+
+    _onFinishedLimitChanged: function () {
+        this._render();
+        this._fetch();
     },
 
     _onRefreshSettingChanged: function () {
@@ -592,10 +616,12 @@ TennisTodayDesklet.prototype = {
             let overnight = started && startDayEt === yesterdayEt && startDayEt !== todayEt;
 
             if (m.status === "Finished") {
-                finished.push(m);
+                if (_recentlyFinished(startMs, now)) {
+                    finished.push(m);
+                }
             } else if (m.status === "Live" || overnight) {
                 live.push(m);
-            } else if (m.status === "Upcoming" && (isNaN(startMs) || startDayEt === todayEt)) {
+            } else if (m.status === "Upcoming" && _upcomingSoon(startMs, now)) {
                 upcoming.push(m);
             }
         }
@@ -630,14 +656,14 @@ TennisTodayDesklet.prototype = {
             return am - bm;
         });
 
-        live = live.slice(0, this.maxLive || 12);
+        live = live.slice(0, this.maxLive || 40);
         if (this.showCompleted) {
             finished = finished.slice(0, this.maxCompleted || 0);
         } else {
             finished = [];
         }
         if (this.showUpcoming) {
-            upcoming = upcoming.slice(0, this.maxUpcoming || 12);
+            upcoming = upcoming.slice(0, this.maxUpcoming || 40);
         } else {
             upcoming = [];
         }
@@ -859,6 +885,10 @@ TennisTodayDesklet.prototype = {
             statusText = liveBit ? _("LIVE · %s").format(liveBit) : _("LIVE");
         } else if (match.status === "Upcoming") {
             statusText = _formatMatchTime(match.startMs) || match.summary || _("Upcoming");
+            if (!isNaN(match.startMs) && _localYmd(match.startMs) !== _localYmd(Date.now()) && match.startMs > Date.now()) {
+                // Translators: %s is a start time, e.g. "Tomorrow · 6:30 AM EDT".
+                statusText = _("Tomorrow · %s").format(statusText);
+            }
         }
         box.add_child(this._label(statusText, statusClass));
 
@@ -1221,7 +1251,6 @@ TennisTodayDesklet.prototype = {
 
     _hydrateStubs: function (stubs, locToName, eventNames, headerMatches, done) {
         let now = Date.now();
-        let todayEt = _etYmd(now);
         let headerByPair = {};
         for (let h = 0; h < (headerMatches || []).length; h++) {
             let m = headerMatches[h];
@@ -1259,7 +1288,7 @@ TennisTodayDesklet.prototype = {
                 continue;
             }
             if (!isNaN(startMs) && startMs > now) {
-                if (_etYmd(startMs) === todayEt) {
+                if (_upcomingSoon(startMs, now)) {
                     let up = this._matchFromStub(stub, locToName, eventNames, "Upcoming", "");
                     if (up) {
                         upcoming.push(up);
@@ -1290,7 +1319,10 @@ TennisTodayDesklet.prototype = {
                 if (stated[s].state === "in") {
                     live.push(stated[s]);
                 } else if (stated[s].state === "post") {
-                    finished.push(stated[s]);
+                    let comp = stated[s].stub.comp;
+                    if (_recentlyFinished(comp.date ? Date.parse(comp.date) : NaN, now)) {
+                        finished.push(stated[s]);
+                    }
                 } else if (stated[s].state === "pre") {
                     let up = this._matchFromStub(stated[s].stub, locToName, eventNames, "Upcoming", "");
                     if (up) {
@@ -1311,8 +1343,8 @@ TennisTodayDesklet.prototype = {
             });
             if (!this.showCompleted) {
                 finished = [];
-            } else if (finished.length > MAX_BOARD_FINISHED) {
-                finished = finished.slice(0, MAX_BOARD_FINISHED);
+            } else {
+                finished = finished.slice(0, Math.max(0, this.maxCompleted || 0));
             }
             let keep = live.concat(finished);
             if (!keep.length) {
@@ -1612,9 +1644,12 @@ TennisTodayDesklet.prototype = {
                     fromBoard.push(board[i]);
                 }
             }
+            // The WTA header also carries the ATP league, so header lists overlap.
             let rest = [];
             for (let j = 0; j < header.length; j++) {
-                if (!seen[_matchKey(header[j])]) {
+                let key = _matchKey(header[j]);
+                if (!seen[key]) {
+                    seen[key] = true;
                     rest.push(header[j]);
                 }
             }

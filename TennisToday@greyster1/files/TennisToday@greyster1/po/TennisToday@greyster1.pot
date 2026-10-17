@@ -81,6 +81,11 @@ msgstr ""
 msgid "LIVE · %s"
 msgstr ""
 
+#: desklet.js:890
+#, javascript-format
+msgid "Tomorrow · %s"
+msgstr ""
+
 #: desklet.js:1043 desklet.js:1410
 msgid "Tournament"
 msgstr ""
@@ -147,15 +152,15 @@ msgid "Show recently finished matches"
 msgstr ""
 
 #. settings-schema.json->max-completed->description
-msgid "Max finished matches"
+msgid "Max finished matches (last 24 hours)"
 msgstr ""
 
 #. settings-schema.json->show-upcoming->description
-msgid "Show upcoming matches today"
+msgid "Show upcoming matches (next 24 hours)"
 msgstr ""
 
 #. settings-schema.json->max-upcoming->description
-msgid "Max upcoming matches today"
+msgid "Max upcoming matches"
 msgstr ""
 
 #. settings-schema.json->max-live->description
