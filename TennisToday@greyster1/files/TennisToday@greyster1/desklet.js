@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 const Desklet = imports.ui.desklet;
+const Main = imports.ui.main;
 const St = imports.gi.St;
 const Clutter = imports.gi.Clutter;
 const Soup = imports.gi.Soup;
@@ -29,6 +30,9 @@ const SERVE_COL_PX = 22;
 const SCORE_FIT_BASE_PX = 400;
 const CHROME_PX = 36;
 const SCORE_GUTTER_PX = 16;
+// Header, desklet padding and frame above and below the scroll area.
+const DESKLET_CHROME_V_PX = 96;
+const MIN_SCROLL_PX = 160;
 const RECENT_FINISHED_MS = 24 * 3600 * 1000;
 const UPCOMING_WINDOW_MS = 24 * 3600 * 1000;
 const LIST_INTERVAL_MS = 180000;
@@ -446,12 +450,17 @@ TennisTodayDesklet.prototype = {
         this._finishedById = {};
         this._countryById = {};
         this._countryPending = {};
+        this._scrollHeight = 0;
+        this._moveTimer = null;
 
         this._initHttp();
         this._bindSettings(deskletId);
         this._buildChrome();
         this.setHeader(_("TennisToday"));
         this._populateContextMenu();
+        if (this.actor) {
+            this.actor.connect("notify::y", () => this._onMoved());
+        }
         this._render();
         this._fetch();
         this._schedule();
@@ -504,6 +513,35 @@ TennisTodayDesklet.prototype = {
     _onFinishedLimitChanged: function () {
         this._render();
         this._fetch();
+    },
+
+    _onMoved: function () {
+        if (this._moveTimer) {
+            Mainloop.source_remove(this._moveTimer);
+        }
+        this._moveTimer = Mainloop.timeout_add(300, () => {
+            this._moveTimer = null;
+            if (this._availableHeight() !== this._scrollHeight) {
+                this._render();
+            }
+            return GLib.SOURCE_REMOVE;
+        });
+    },
+
+    // Keep the list on screen: a desklet placed low on the monitor would
+    // otherwise push the bottom of the scroll area past the screen edge.
+    _availableHeight: function () {
+        let maxH = this.maxHeight || 720;
+        try {
+            let monitor = Main.layoutManager.findMonitorForActor(this.actor);
+            let [, y] = this.actor.get_transformed_position();
+            if (monitor && y >= monitor.y) {
+                let room = monitor.y + monitor.height - y - DESKLET_CHROME_V_PX;
+                maxH = Math.min(maxH, Math.max(MIN_SCROLL_PX, Math.floor(room)));
+            }
+        } catch (e) {
+        }
+        return maxH;
     },
 
     _onRefreshSettingChanged: function () {
@@ -708,13 +746,16 @@ TennisTodayDesklet.prototype = {
             return;
         }
 
+        this._scrollHeight = this._availableHeight();
         let scroll = new St.ScrollView({
-            style: "max-height: " + (this.maxHeight || 720) + "px;",
+            style: "max-height: " + this._scrollHeight + "px;",
             x_expand: true
         });
         scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
         scroll.overlay_scrollbars = true;
-        scroll.clip_to_allocation = false;
+        // Unclipped, rows scrolled above the list stay clickable over the
+        // header, so the refresh button opened a match on ESPN instead.
+        scroll.clip_to_allocation = true;
 
         let inner = new St.BoxLayout({
             vertical: true,
@@ -1801,6 +1842,10 @@ TennisTodayDesklet.prototype = {
 
     on_desklet_removed: function () {
         this._destroyed = true;
+        if (this._moveTimer) {
+            Mainloop.source_remove(this._moveTimer);
+            this._moveTimer = null;
+        }
         if (this._timer) {
             Mainloop.source_remove(this._timer);
             this._timer = null;
