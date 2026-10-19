@@ -172,6 +172,22 @@ function _nameKey(name) {
     return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+// ESPN fills draws it has not published yet with "Bye" vs "Bye" (athlete
+// id 0) and "TBD" vs "TBD" slots; nobody will play those as listed.
+function _isPlaceholderMatch(players) {
+    let known = 0;
+    for (let i = 0; i < (players || []).length; i++) {
+        let name = String(players[i].name || "").trim();
+        if (/^bye$/i.test(name) || String(players[i].id) === "0") {
+            return true;
+        }
+        if (name && !/^tbd$/i.test(name) && name !== _("TBD")) {
+            known += 1;
+        }
+    }
+    return known === 0;
+}
+
 function _pairKeyFromNames(names) {
     let keys = (names || []).map(_nameKey);
     keys.sort();
@@ -1343,6 +1359,9 @@ TennisTodayDesklet.prototype = {
             if (!this.showDoubles && /doubles/i.test(slug)) {
                 continue;
             }
+            if (_isPlaceholderMatch(c.competitors)) {
+                continue;
+            }
             let tName = eventNames[stub.eventId] || "";
             if (tName && !this._matchTourEnabled(stub.league, tName)) {
                 continue;
@@ -1709,7 +1728,10 @@ TennisTodayDesklet.prototype = {
                 if (m.isDoubles && !this.showDoubles) {
                     return false;
                 }
-                return true;
+                let players = (m.teams || []).map(function (t) {
+                    return { name: t.name, id: t.athleteId };
+                });
+                return !_isPlaceholderMatch(players);
             });
             let fromBoard = [];
             let seen = {};
