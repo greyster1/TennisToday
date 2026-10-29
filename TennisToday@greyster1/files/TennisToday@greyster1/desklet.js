@@ -512,6 +512,8 @@ TennisTodayDesklet.prototype = {
         this._actorSignals = [];
         this._moveTimer = null;
         this._renderTimer = null;
+        this._dragging = false;
+        this._dragSignals = [];
         this._pointsSeen = false;
         this._showPoints = false;
 
@@ -524,6 +526,7 @@ TennisTodayDesklet.prototype = {
             this._actorSignals.push(this.actor.connect("notify::y", () => this._onMoved()));
             this._actorSignals.push(this.actor.connect("notify::mapped", () => this._onMoved()));
         }
+        this._watchDrag();
         this._render();
         this._fetch();
         this._schedule();
@@ -559,6 +562,27 @@ TennisTodayDesklet.prototype = {
         this.settings.bindProperty(Settings.BindingDirection.IN, "max-live", "maxLive", this._onSettingsChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "desklet-width", "deskletWidth", this._onSettingsChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "max-height", "maxHeight", this._onSettingsChanged, null);
+    },
+
+    // Rebuilding the list while the desklet is being dragged destroys the actor
+    // under the pointer, the drop is lost and the desklet keeps following the
+    // mouse. Hold renders until the drag ends, then redraw (and re-measure the
+    // room left on screen at the new position).
+    _watchDrag: function () {
+        let drag = this._draggable;
+        if (!drag || !drag.connect) {
+            return;
+        }
+        let begin = () => {
+            this._dragging = true;
+        };
+        let end = () => {
+            this._dragging = false;
+            this._onSettingsChanged();
+        };
+        this._dragSignals.push(drag.connect("drag-begin", begin));
+        this._dragSignals.push(drag.connect("drag-end", end));
+        this._dragSignals.push(drag.connect("drag-cancelled", end));
     },
 
     // A slider or spin button fires on every step; rebuilding the whole list
@@ -803,7 +827,7 @@ TennisTodayDesklet.prototype = {
     },
 
     _render: function () {
-        if (this._destroyed || !this._root) {
+        if (this._destroyed || !this._root || this._dragging) {
             return;
         }
         // Every score change rebuilds the list; keep the reader's place in it.
@@ -1655,6 +1679,12 @@ TennisTodayDesklet.prototype = {
             }
         }
         this._actorSignals = [];
+        if (this._draggable) {
+            for (let i = 0; i < this._dragSignals.length; i++) {
+                this._draggable.disconnect(this._dragSignals[i]);
+            }
+        }
+        this._dragSignals = [];
         if (this._moveTimer) {
             Mainloop.source_remove(this._moveTimer);
             this._moveTimer = null;
