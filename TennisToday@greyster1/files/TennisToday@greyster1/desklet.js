@@ -183,6 +183,10 @@ function _nameKey(name) {
 // the short code shown in the tag and used by the level filters.
 function _tierFromLevel(level) {
     let l = String(level || "").trim();
+    // WTA's own name for its 125 tier is "Challenger".
+    if (/^wta.*challenger/i.test(l)) {
+        return "125";
+    }
     if (/challenger/i.test(l)) {
         return "CH";
     }
