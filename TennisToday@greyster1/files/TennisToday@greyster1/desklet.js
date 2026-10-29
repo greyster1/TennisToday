@@ -48,17 +48,22 @@ function _(str) {
     return Gettext.dgettext(UUID, str);
 }
 
+let _etFormatter;
+
 function _etYmd(ms) {
     if (ms === undefined || ms === null || isNaN(ms)) {
         return "";
     }
     try {
-        let parts = new Intl.DateTimeFormat("en-US", {
-            timeZone: "America/New_York",
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit"
-        }).formatToParts(new Date(ms));
+        if (!_etFormatter) {
+            _etFormatter = new Intl.DateTimeFormat("en-US", {
+                timeZone: "America/New_York",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit"
+            });
+        }
+        let parts = _etFormatter.formatToParts(new Date(ms));
         let y = "", mo = "", d = "";
         for (let i = 0; i < parts.length; i++) {
             if (parts[i].type === "year") {
@@ -454,11 +459,68 @@ function _pairKey(teamKeys) {
 }
 
 const LS_SLAM_RE = /^(wimbledon|australian open|us open|french open|roland garros)$/i;
+const LS_KEEP_EVENT_KEY_RE = /^(Eid|Eps|Esd|Esrv|Ewt|Tr[12]G|Tr[12]S\d+T?)$/;
 const LS_SKIP_STAGE_RE = /qualif|junior|wheelchair|legends/i;
 // LiveScore marks games in progress "S1".."S5"; "ToFi" is a suspended match.
 const LS_LIVE_RE = /^(S\d|ToFi)$/;
 const LS_DONE_RE = /^(FT|Ret\.|W\.O\.)$/;
 const LS_STALE_UPCOMING_MS = 6 * 3600 * 1000;
+
+// Which tour a LiveScore stage belongs to, or null when the desklet does not
+// show it (Challengers, ITF, qualifying, juniors, team events, unknown tours).
+function _lsStageInfo(stage) {
+    let level = String(stage.Cnm || "");
+    let stageName = String(stage.Snm || "");
+    if (LS_SKIP_STAGE_RE.test(stageName)) {
+        return null;
+    }
+    if (LS_SLAM_RE.test(level)) {
+        return {
+            slam: true,
+            tour: /^women/i.test(stageName) ? "WTA" : (/^men/i.test(stageName) ? "ATP" : "")
+        };
+    }
+    if (/^ATP/i.test(level) && !/challenger/i.test(level)) {
+        return { slam: false, tour: "ATP" };
+    }
+    if (/^WTA/i.test(level)) {
+        return { slam: false, tour: "WTA" };
+    }
+    return null;
+}
+
+// A day feed is ~60 KB of mostly Challenger and ITF matches plus media and
+// betting ids. Keep only what is shown so the cached feeds stay small.
+function _slimLivescore(json) {
+    let stages = [];
+    let src = (json && json.Stages) || [];
+    for (let s = 0; s < src.length; s++) {
+        if (!_lsStageInfo(src[s])) {
+            continue;
+        }
+        let events = [];
+        let evs = src[s].Events || [];
+        for (let e = 0; e < evs.length; e++) {
+            let ev = {};
+            for (let k in evs[e]) {
+                if (LS_KEEP_EVENT_KEY_RE.test(k)) {
+                    ev[k] = evs[e][k];
+                }
+            }
+            for (let side = 1; side <= 2; side++) {
+                ev["T" + side] = (evs[e]["T" + side] || []).map(function (pl) {
+                    return { Nm: pl.Nm, ID: pl.ID };
+                });
+            }
+            events.push(ev);
+        }
+        stages.push({
+            Sid: src[s].Sid, Snm: src[s].Snm, Scd: src[s].Scd,
+            Cnm: src[s].Cnm, Ccd: src[s].Ccd, Events: events
+        });
+    }
+    return { Stages: stages };
+}
 
 function TennisTodayDesklet(metadata, deskletId) {
     this._init(metadata, deskletId);
@@ -502,6 +564,7 @@ TennisTodayDesklet.prototype = {
         this._lsDays = {};
         this._lsDayAt = {};
         this._lsLive = null;
+        this._lsLiveKey = null;
         this._enrichByEid = {};
         this._tourInfo = {};
         this._seedByKey = {};
@@ -541,6 +604,11 @@ TennisTodayDesklet.prototype = {
         if (IS_SOUP_2) {
             this._httpSession = new Soup.SessionAsync();
             Soup.Session.prototype.add_feature.call(this._httpSession, new Soup.ProxyResolverDefault());
+            try {
+                Soup.Session.prototype.add_feature.call(this._httpSession, new Soup.ContentDecoder());
+            } catch (e) {
+                global.logWarning(UUID + " gzip unavailable: " + e);
+            }
         } else {
             this._httpSession = new Soup.Session();
         }
@@ -603,6 +671,9 @@ TennisTodayDesklet.prototype = {
     },
 
     _onMoved: function () {
+        if (this._dragging) {
+            return;
+        }
         if (this._moveTimer) {
             Mainloop.source_remove(this._moveTimer);
         }
@@ -1309,33 +1380,49 @@ TennisTodayDesklet.prototype = {
                 delete this._lsDayAt[k];
             }
         }
-        // Today and the live feed are read every refresh; the neighbouring
-        // days only change when a match is scheduled, so they can age.
-        let jobs = [{ url: LIVESCORE_URL + "/live/tennis/0?MD=1", day: "" }];
-        for (let i = 0; i < days.length; i++) {
-            let day = days[i];
-            let aged = !this._lsDays[day] || now - this._lsDayAt[day] > LIST_INTERVAL_MS;
-            if (force || day === todayKey || aged) {
-                jobs.push({ url: LIVESCORE_URL + "/date/tennis/" + day + "/0?MD=1", day: day });
+        // The live feed is tiny and carries every score and point, so it is read
+        // each refresh. The ~60 KB day feeds only matter when a match starts or
+        // finishes (the live set changes) or a schedule shifts (they age).
+        this._fetchJson(LIVESCORE_URL + "/live/tennis/0?MD=1", (json) => {
+            let ok = !!(json && json.Stages);
+            this._lsLive = ok ? _slimLivescore(json) : null;
+            let key = "";
+            if (ok) {
+                this._lsLive.Stages.forEach(function (st) {
+                    st.Events.forEach(function (ev) {
+                        key += ev.Eid + ",";
+                    });
+                });
             }
-        }
-        let left = jobs.length;
-        for (let j = 0; j < jobs.length; j++) {
-            let job = jobs[j];
-            this._fetchJson(job.url, (json) => {
-                let ok = !!(json && json.Stages);
-                if (!job.day) {
-                    this._lsLive = ok ? json : null;
-                } else if (ok) {
-                    this._lsDays[job.day] = json;
-                    this._lsDayAt[job.day] = Date.now();
+            let liveChanged = !ok || key !== this._lsLiveKey;
+            this._lsLiveKey = key;
+            let jobs = [];
+            for (let i = 0; i < days.length; i++) {
+                let day = days[i];
+                let aged = !this._lsDays[day] || now - this._lsDayAt[day] > LIST_INTERVAL_MS;
+                if (force || aged || (liveChanged && day === todayKey)) {
+                    jobs.push(day);
                 }
-                left -= 1;
-                if (left <= 0) {
-                    done();
-                }
-            }, true);
-        }
+            }
+            if (!jobs.length) {
+                done();
+                return;
+            }
+            let left = jobs.length;
+            for (let j = 0; j < jobs.length; j++) {
+                let day = jobs[j];
+                this._fetchJson(LIVESCORE_URL + "/date/tennis/" + day + "/0?MD=1", (dayJson) => {
+                    if (dayJson && dayJson.Stages) {
+                        this._lsDays[day] = _slimLivescore(dayJson);
+                        this._lsDayAt[day] = Date.now();
+                    }
+                    left -= 1;
+                    if (left <= 0) {
+                        done();
+                    }
+                }, true);
+            }
+        }, true);
     },
 
     _lsLink: function (stage, ev) {
@@ -1386,20 +1473,12 @@ TennisTodayDesklet.prototype = {
     _lsMatch: function (stage, ev, now) {
         let level = String(stage.Cnm || "");
         let stageName = String(stage.Snm || "");
-        if (LS_SKIP_STAGE_RE.test(stageName)) {
+        let info = _lsStageInfo(stage);
+        if (!info) {
             return null;
         }
-        let slam = LS_SLAM_RE.test(level);
-        let tour = "";
-        if (slam) {
-            tour = /^women/i.test(stageName) ? "WTA" : (/^men/i.test(stageName) ? "ATP" : "");
-        } else if (/^ATP/i.test(level) && !/challenger/i.test(level)) {
-            tour = "ATP";
-        } else if (/^WTA/i.test(level)) {
-            tour = "WTA";
-        } else {
-            return null;
-        }
+        let slam = info.slam;
+        let tour = info.tour;
 
         let eps = String(ev.Eps || "");
         let status;
@@ -1565,6 +1644,22 @@ TennisTodayDesklet.prototype = {
             if (!seen[eid]) {
                 delete this._enrichByEid[eid];
             }
+        }
+        // Forget tournaments no longer on screen; keep the country cache bounded.
+        let sids = {};
+        matches.forEach(function (m) { sids[m.sid] = true; });
+        for (let k in this._seedByKey) {
+            if (!sids[k.substring(0, k.indexOf("|"))]) {
+                delete this._seedByKey[k];
+            }
+        }
+        for (let sid in this._tourInfo) {
+            if (!sids[sid]) {
+                delete this._tourInfo[sid];
+            }
+        }
+        if (Object.keys(this._playerCountry).length > 2000) {
+            this._playerCountry = {};
         }
         for (let i = 0; i < matches.length; i++) {
             let m = matches[i];
