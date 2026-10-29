@@ -27,6 +27,8 @@ const USER_AGENT = "TennisToday-desklet (Cinnamon; +https://github.com/greyster1
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
 const SET_COL_PX = 28;
 const POINTS_COL_PX = 36;
+const POINTS_GAP_PX = 6;
+const RENDER_DEBOUNCE_MS = 250;
 const SERVE_COL_PX = 22;
 const SCORE_FIT_BASE_PX = 400;
 const CHROME_PX = 36;
@@ -509,6 +511,9 @@ TennisTodayDesklet.prototype = {
         this._scrollRestoreId = 0;
         this._actorSignals = [];
         this._moveTimer = null;
+        this._renderTimer = null;
+        this._pointsSeen = false;
+        this._showPoints = false;
 
         this._initHttp();
         this._bindSettings(deskletId);
@@ -556,8 +561,17 @@ TennisTodayDesklet.prototype = {
         this.settings.bindProperty(Settings.BindingDirection.IN, "max-height", "maxHeight", this._onSettingsChanged, null);
     },
 
+    // A slider or spin button fires on every step; rebuilding the whole list
+    // each time made the desklet flicker while its settings were open.
     _onSettingsChanged: function () {
-        this._render();
+        if (this._renderTimer) {
+            Mainloop.source_remove(this._renderTimer);
+        }
+        this._renderTimer = Mainloop.timeout_add(RENDER_DEBOUNCE_MS, () => {
+            this._renderTimer = null;
+            this._render();
+            return GLib.SOURCE_REMOVE;
+        });
     },
 
     _onMoved: function () {
@@ -782,8 +796,9 @@ TennisTodayDesklet.prototype = {
         return n;
     },
 
-    _fittedWidth: function (setCols) {
-        let needed = SCORE_FIT_BASE_PX + Math.max(setCols, 1) * SET_COL_PX + CHROME_PX;
+    _fittedWidth: function (setCols, withPoints) {
+        let needed = SCORE_FIT_BASE_PX + Math.max(setCols, 1) * SET_COL_PX + CHROME_PX
+            + (withPoints ? POINTS_COL_PX + POINTS_GAP_PX : 0);
         return Math.max(this.deskletWidth || 420, needed);
     },
 
@@ -799,7 +814,14 @@ TennisTodayDesklet.prototype = {
 
         let groups = this._selectedMatches();
         let visible = groups.live.concat(groups.upcoming, groups.finished);
-        let widthPx = this._fittedWidth(this._maxSetColumns(visible));
+        let liveRows = visible.filter(function (m) { return m.status === "Live"; });
+        if (liveRows.some(function (m) { return m.teams.some(function (t) { return !!t.points; }); })) {
+            this._pointsSeen = true;
+        }
+        // Reserve the column for every live match once points have been seen,
+        // so the list does not widen and narrow between games.
+        this._showPoints = this._pointsSeen && liveRows.length > 0;
+        let widthPx = this._fittedWidth(this._maxSetColumns(visible), this._showPoints);
         this._root.style = "min-width: " + widthPx + "px; width: " + widthPx + "px;";
         this._root.clip_to_allocation = false;
 
@@ -998,9 +1020,7 @@ TennisTodayDesklet.prototype = {
         }
 
         let live = match.status === "Live";
-        let showPoints = live && match.teams.some(function (t) {
-            return !!t.points;
-        });
+        let showPoints = live && this._showPoints;
         for (let i = 0; i < match.teams.length; i++) {
             box.add_child(this._buildTeamRow(match.teams[i], maxSets, live, showPoints));
         }
@@ -1638,6 +1658,10 @@ TennisTodayDesklet.prototype = {
         if (this._moveTimer) {
             Mainloop.source_remove(this._moveTimer);
             this._moveTimer = null;
+        }
+        if (this._renderTimer) {
+            Mainloop.source_remove(this._renderTimer);
+            this._renderTimer = null;
         }
         if (this._timer) {
             Mainloop.source_remove(this._timer);
