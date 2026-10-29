@@ -514,6 +514,10 @@ TennisTodayDesklet.prototype = {
         this._renderTimer = null;
         this._dragging = false;
         this._dragSignals = [];
+        this._matchActors = {};
+        this._matchUsed = {};
+        this._headerCache = [];
+        this._headerAt = 0;
         this._pointsSeen = false;
         this._showPoints = false;
 
@@ -834,6 +838,10 @@ TennisTodayDesklet.prototype = {
         let keepScroll = this._scrollView ? this._scrollView.vscroll.adjustment.value : 0;
         this._dropScrollRestore();
         this._scrollView = null;
+        // Match rows are reused when nothing about them changed. Detach them so
+        // clearing the list does not destroy them: tearing down thousands of
+        // actors on every refresh stalled Cinnamon for seconds at a time.
+        this._detachMatchActors();
         this._root.destroy_all_children();
 
         let groups = this._selectedMatches();
@@ -853,6 +861,7 @@ TennisTodayDesklet.prototype = {
 
         if (this._error && this._matches.length === 0) {
             this._root.add_child(this._label(this._error, "lt-error", true));
+            this._pruneMatchActors();
             return;
         }
 
@@ -907,6 +916,7 @@ TennisTodayDesklet.prototype = {
         }
         this._root.add_child(scroll);
         this._scrollView = scroll;
+        this._pruneMatchActors();
         this._restoreScroll(scroll, keepScroll);
     },
 
@@ -972,6 +982,56 @@ TennisTodayDesklet.prototype = {
         return header;
     },
 
+    _matchSignature: function (m) {
+        let parts = [m.id, m.status, m.summary || "", m.endNote || "", m.link || "", m.eventType || "",
+            m.roundName || "", m.courtName || "", m.status === "Live" && this._showPoints ? "p" : ""];
+        if (m.status === "Upcoming") {
+            // The time reads "Tomorrow · ..." depending on today's date.
+            parts.push(String(m.startMs), _localYmd(Date.now()));
+        }
+        for (let t = 0; t < (m.teams || []).length; t++) {
+            let tm = m.teams[t];
+            parts.push(tm.name || "", String(tm.seed || ""), tm.country || "", tm.serving ? "1" : "0",
+                tm.winner ? "1" : "0", tm.points || "", tm.score || "");
+            let lines = tm.linescores || [];
+            for (let k = 0; k < lines.length; k++) {
+                parts.push(String(lines[k].value), String(lines[k].tiebreak || ""));
+            }
+        }
+        return parts.join("\t");
+    },
+
+    _matchActor: function (m) {
+        let sig = this._matchSignature(m);
+        let actor = this._matchActors[sig];
+        if (!actor) {
+            actor = this._buildMatch(m);
+            this._matchActors[sig] = actor;
+        }
+        this._matchUsed[sig] = true;
+        return actor;
+    },
+
+    _detachMatchActors: function () {
+        this._matchUsed = {};
+        for (let sig in this._matchActors) {
+            let actor = this._matchActors[sig];
+            let parent = actor.get_parent();
+            if (parent) {
+                parent.remove_child(actor);
+            }
+        }
+    },
+
+    _pruneMatchActors: function () {
+        for (let sig in this._matchActors) {
+            if (!this._matchUsed[sig]) {
+                this._matchActors[sig].destroy();
+                delete this._matchActors[sig];
+            }
+        }
+    },
+
     _appendGroupedMatches: function (parent, matches) {
         let lastKey = null;
         for (let i = 0; i < matches.length; i++) {
@@ -981,7 +1041,7 @@ TennisTodayDesklet.prototype = {
                 parent.add_child(this._buildTournamentHeader(m));
                 lastKey = key;
             }
-            parent.add_child(this._buildMatch(m));
+            parent.add_child(this._matchActor(m));
         }
     },
 
@@ -1556,18 +1616,26 @@ TennisTodayDesklet.prototype = {
         this._fetchStartedAt = Date.now();
 
         let left = 2;
-        let header = [];
         let tick = () => {
             left -= 1;
             if (left <= 0) {
-                this._finishFetch(header);
+                this._finishFetch(this._headerCache);
             }
         };
         this._fetchLivescore(force, tick);
-        this._fetchHeaders((matches) => {
-            header = matches || [];
+        // Seeds, rounds and courts barely change, so ESPN's ~80 KB header is
+        // read every few minutes while scores refresh every interval.
+        if (!force && this._headerAt && Date.now() - this._headerAt < LIST_INTERVAL_MS) {
             tick();
-        });
+        } else {
+            this._fetchHeaders((matches) => {
+                if (matches && matches.length) {
+                    this._headerCache = matches;
+                    this._headerAt = Date.now();
+                }
+                tick();
+            });
+        }
     },
 
     _finishFetch: function (header) {
@@ -1712,6 +1780,7 @@ TennisTodayDesklet.prototype = {
             this.settings.finalize();
             this.settings = null;
         }
+        this._matchActors = {};
         this._root = null;
     }
 };
