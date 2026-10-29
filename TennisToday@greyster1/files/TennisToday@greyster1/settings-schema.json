@@ -10,6 +10,7 @@
             "title": "Tours",
             "sections": [
                 "section-tours",
+                "section-levels",
                 "section-refresh"
             ]
         },
@@ -29,6 +30,16 @@
                 "enable-wta",
                 "enable-grand-slam",
                 "show-doubles"
+            ]
+        },
+        "section-levels": {
+            "type": "section",
+            "title": "Tournament level",
+            "keys": [
+                "show-tier-1000",
+                "show-tier-500",
+                "show-tier-250",
+                "show-tier-other"
             ]
         },
         "section-refresh": {
@@ -77,6 +88,26 @@
         "type": "switch",
         "default": true,
         "description": "Show doubles"
+    },
+    "show-tier-1000": {
+        "type": "switch",
+        "default": true,
+        "description": "Show 1000 and Finals"
+    },
+    "show-tier-500": {
+        "type": "switch",
+        "default": true,
+        "description": "Show 500"
+    },
+    "show-tier-250": {
+        "type": "switch",
+        "default": true,
+        "description": "Show 250"
+    },
+    "show-tier-other": {
+        "type": "switch",
+        "default": true,
+        "description": "Show 125, Challenger and unrated events"
     },
     "refresh-seconds": {
         "type": "spinbutton",

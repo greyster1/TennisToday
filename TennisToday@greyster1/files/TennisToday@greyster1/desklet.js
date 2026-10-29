@@ -22,6 +22,8 @@ const UUID = "TennisToday@greyster1";
 const ESPN_URL = "https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=tennis";
 const ESPN_CORE = "https://sports.core.api.espn.com/v2/sports/tennis/leagues";
 const ESPN_PAGE = "https://www.espn.com/tennis/scoreboard";
+// ESPN carries no tournament level or game points; LiveScore's public feed does.
+const LIVESCORE_URL = "https://prod-public-api.livescore.com/v1/api/app";
 const USER_AGENT = "TennisToday-desklet (Cinnamon; +https://github.com/greyster1/TennisToday)";
 const IS_SOUP_2 = Soup.MAJOR_VERSION === undefined || Soup.MAJOR_VERSION === 2;
 const SET_COL_PX = 28;
@@ -169,7 +171,48 @@ function _matchKey(m) {
 }
 
 function _nameKey(name) {
-    return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    let n = String(name || "");
+    try {
+        n = n.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    } catch (e) {
+    }
+    return n.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+// LiveScore names a tournament's level ("ATP 500", "WTA Finals"); reduce it to
+// the short code shown in the tag and used by the level filters.
+function _tierFromLevel(level) {
+    let l = String(level || "").trim();
+    if (/challenger/i.test(l)) {
+        return "CH";
+    }
+    if (/finals/i.test(l)) {
+        return "Finals";
+    }
+    let m = l.match(/\b(1000|500|250|125)\b/);
+    if (m) {
+        return m[1];
+    }
+    // LiveScore files WTA 125 events under a bare "WTA".
+    if (/^wta$/i.test(l)) {
+        return "125";
+    }
+    return "";
+}
+
+function _tierGroup(tier) {
+    if (tier === "1000" || tier === "Finals") {
+        return "1000";
+    }
+    if (tier === "500" || tier === "250") {
+        return tier;
+    }
+    return "other";
+}
+
+function _utcCompact(ms) {
+    let dt = new Date(ms);
+    return dt.getUTCFullYear() + String(dt.getUTCMonth() + 1).padStart(2, "0") + String(dt.getUTCDate()).padStart(2, "0");
 }
 
 // ESPN fills draws it has not published yet with "Bye" vs "Bye" (athlete
@@ -437,6 +480,10 @@ TennisTodayDesklet.prototype = {
         this.enableWta = true;
         this.enableGrandSlam = true;
         this.showDoubles = true;
+        this.showTier1000 = true;
+        this.showTier500 = true;
+        this.showTier250 = true;
+        this.showTierOther = true;
         this.refreshSeconds = 60;
         this.showCompleted = true;
         this.maxCompleted = 40;
@@ -463,6 +510,10 @@ TennisTodayDesklet.prototype = {
         this._stubLoc = {};
         this._stubEvents = {};
         this._lastListAt = 0;
+        this._lsPairTier = {};
+        this._lsTournamentTier = {};
+        this._lsLive = {};
+        this._lastTierAt = 0;
         this._finishedById = {};
         this._countryById = {};
         this._countryPending = {};
@@ -504,6 +555,10 @@ TennisTodayDesklet.prototype = {
         this.settings.bindProperty(Settings.BindingDirection.IN, "enable-wta", "enableWta", this._onToursChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "enable-grand-slam", "enableGrandSlam", this._onToursChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "show-doubles", "showDoubles", this._onToursChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "show-tier-1000", "showTier1000", this._onSettingsChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "show-tier-500", "showTier500", this._onSettingsChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "show-tier-250", "showTier250", this._onSettingsChanged, null);
+        this.settings.bindProperty(Settings.BindingDirection.IN, "show-tier-other", "showTierOther", this._onSettingsChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "refresh-seconds", "refreshSeconds", this._onRefreshSettingChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "show-completed", "showCompleted", this._onToursChanged, null);
         this.settings.bindProperty(Settings.BindingDirection.IN, "max-completed", "maxCompleted", this._onFinishedLimitChanged, null);
@@ -668,6 +723,9 @@ TennisTodayDesklet.prototype = {
             if (m.isDoubles && !this.showDoubles) {
                 continue;
             }
+            if (!m.isGrandSlam && !this._tierEnabled(m.tier)) {
+                continue;
+            }
             let now = Date.now();
             let startMs = m.startMs;
             let started = !isNaN(startMs) && startMs <= now;
@@ -729,6 +787,20 @@ TennisTodayDesklet.prototype = {
             upcoming = [];
         }
         return { live: live, finished: finished, upcoming: upcoming };
+    },
+
+    _tierEnabled: function (tier) {
+        let group = _tierGroup(tier);
+        if (group === "1000") {
+            return !!this.showTier1000;
+        }
+        if (group === "500") {
+            return !!this.showTier500;
+        }
+        if (group === "250") {
+            return !!this.showTier250;
+        }
+        return !!this.showTierOther;
     },
 
     _maxSetColumns: function (matches) {
@@ -917,6 +989,10 @@ TennisTodayDesklet.prototype = {
             tourClass = "lt-tour-atp";
         } else if (match.tour === "WTA") {
             tourClass = "lt-tour-wta";
+        }
+        if (match.tier && badge !== "Grand Slam") {
+            // "ATP500" rather than "ATP 500": the tag is the cheapest place for the level.
+            badgeText = match.tour + (/^\d+$/.test(match.tier) ? "" : " ") + match.tier;
         }
         row.add_child(this._label(badgeText, "lt-tour-badge " + tourClass));
         let name = match.tournament;
@@ -1685,7 +1761,7 @@ TennisTodayDesklet.prototype = {
         let parts = [];
         for (let i = 0; i < matches.length; i++) {
             let m = matches[i];
-            parts.push(m.status, m.summary || "", m.tournament || "", m.roundName || "");
+            parts.push(m.status, m.summary || "", m.tournament || "", m.roundName || "", m.tier || "");
             let teams = m.teams || [];
             for (let t = 0; t < teams.length; t++) {
                 let tm = teams[t];
@@ -1710,7 +1786,9 @@ TennisTodayDesklet.prototype = {
             this._fetchDatedBoard(headerMatches, (board) => {
                 this._boardCache = board || [];
                 this._lastBoardAt = Date.now();
-                this._finishFetch(headerMatches, this._boardCache);
+                this._fetchLivescore(force, () => {
+                    this._finishFetch(headerMatches, this._boardCache);
+                });
             }, force);
         });
     },
@@ -1753,6 +1831,7 @@ TennisTodayDesklet.prototype = {
             }
             let next = fromBoard.concat(rest);
             this._applyHeaderServe(header, next);
+            this._applyLivescore(next);
             this._seedCountries(header.concat(fromBoard));
             this._fillCountries(next, (filled) => {
                 this._applyMatches(filled);
@@ -1763,6 +1842,125 @@ TennisTodayDesklet.prototype = {
             global.logError(UUID + " merge error: " + e);
         }
         this._render();
+    },
+
+    _fetchLivescore: function (force, done) {
+        let now = Date.now();
+        let tiersStale = force || !this._lastTierAt || now - this._lastTierAt > LIST_INTERVAL_MS;
+        let left = 1 + (tiersStale ? 3 : 0);
+        let tick = () => {
+            left -= 1;
+            if (left <= 0) {
+                done();
+            }
+        };
+        this._fetchJson(LIVESCORE_URL + "/live/tennis/0?MD=1", (json) => {
+            if (json) {
+                this._lsLive = this._indexLivescore(json, false);
+            }
+            tick();
+        }, true);
+        if (!tiersStale) {
+            return;
+        }
+        this._lastTierAt = now;
+        let pairTier = {};
+        let got = 0;
+        let daysLeft = 3;
+        let finishDay = () => {
+            daysLeft -= 1;
+            if (daysLeft === 0 && got > 0) {
+                this._lsPairTier = pairTier;
+            }
+            tick();
+        };
+        for (let d = -1; d <= 1; d++) {
+            this._fetchJson(LIVESCORE_URL + "/date/tennis/" + _utcCompact(now + d * 24 * 3600 * 1000) + "/0?MD=1", (json) => {
+                if (json) {
+                    got += 1;
+                    let idx = this._indexLivescore(json, true);
+                    for (let k in idx) {
+                        pairTier[k] = idx[k];
+                    }
+                }
+                finishDay();
+            });
+        }
+    },
+
+    // Index LiveScore events by the pair of singles players. Doubles carry two
+    // names per side and ESPN names them differently, so they get their level
+    // from the tournament instead.
+    _indexLivescore: function (json, tiersOnly) {
+        let out = {};
+        let stages = (json && json.Stages) || [];
+        for (let s = 0; s < stages.length; s++) {
+            let tier = _tierFromLevel(stages[s].Cnm);
+            let events = stages[s].Events || [];
+            for (let e = 0; e < events.length; e++) {
+                let ev = events[e];
+                let t1 = ev.T1 || [];
+                let t2 = ev.T2 || [];
+                if (t1.length !== 1 || t2.length !== 1) {
+                    continue;
+                }
+                let a = _nameKey(t1[0].Nm);
+                let b = _nameKey(t2[0].Nm);
+                let key = _pairKeyFromNames([t1[0].Nm, t2[0].Nm]);
+                if (tiersOnly) {
+                    out[key] = tier;
+                    continue;
+                }
+                let byName = {};
+                byName[a] = _formatPoints(ev.Tr1G);
+                byName[b] = _formatPoints(ev.Tr2G);
+                let server = "";
+                if (String(ev.Esrv) === "1") {
+                    server = a;
+                } else if (String(ev.Esrv) === "2") {
+                    server = b;
+                }
+                out[key] = { points: byName, server: server };
+            }
+        }
+        return out;
+    },
+
+    _applyLivescore: function (matches) {
+        let tournamentTier = this._lsTournamentTier;
+        for (let i = 0; i < (matches || []).length; i++) {
+            let m = matches[i];
+            if (m.isDoubles) {
+                continue;
+            }
+            let names = (m.teams || []).map(function (t) { return t.name || ""; });
+            let key = _pairKeyFromNames(names);
+            let tier = this._lsPairTier[key];
+            if (tier !== undefined) {
+                m.tier = tier;
+                tournamentTier[m.tour + "|" + m.tournament] = tier;
+            }
+            let live = this._lsLive[key];
+            if (m.status === "Live" && live) {
+                let teams = m.teams || [];
+                let hasServe = teams.some(function (t) { return t.serving; });
+                for (let t = 0; t < teams.length; t++) {
+                    let nk = _nameKey(teams[t].name);
+                    if (live.points[nk]) {
+                        teams[t].points = live.points[nk];
+                    }
+                    if (!hasServe && live.server === nk) {
+                        teams[t].serving = true;
+                    }
+                }
+            }
+        }
+        for (let i = 0; i < (matches || []).length; i++) {
+            let m = matches[i];
+            if (!m.tier) {
+                m.tier = tournamentTier[m.tour + "|" + m.tournament] || "";
+            }
+        }
     },
 
     _applyHeaderServe: function (header, matches) {
