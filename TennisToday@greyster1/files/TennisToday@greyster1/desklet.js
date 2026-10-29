@@ -1914,13 +1914,21 @@ TennisTodayDesklet.prototype = {
                 let byName = {};
                 byName[a] = _formatPoints(ev.Tr1G);
                 byName[b] = _formatPoints(ev.Tr2G);
+                // Games per set, in play order, keyed by player like the points.
+                let sets = {};
+                sets[a] = [];
+                sets[b] = [];
+                for (let n = 1; ev["Tr1S" + n] !== undefined && ev["Tr2S" + n] !== undefined; n++) {
+                    sets[a].push({ value: Number(ev["Tr1S" + n]), tiebreak: ev["Tr1S" + n + "T"] || null });
+                    sets[b].push({ value: Number(ev["Tr2S" + n]), tiebreak: ev["Tr2S" + n + "T"] || null });
+                }
                 let server = "";
                 if (String(ev.Esrv) === "1") {
                     server = a;
                 } else if (String(ev.Esrv) === "2") {
                     server = b;
                 }
-                out[key] = { points: byName, server: server };
+                out[key] = { points: byName, server: server, sets: sets };
             }
         }
         return out;
@@ -1944,6 +1952,7 @@ TennisTodayDesklet.prototype = {
             if (m.status === "Live" && live) {
                 let teams = m.teams || [];
                 let hasServe = teams.some(function (t) { return t.serving; });
+                this._preferLivescoreSets(teams, live.sets);
                 for (let t = 0; t < teams.length; t++) {
                     let nk = _nameKey(teams[t].name);
                     if (live.points[nk]) {
@@ -1960,6 +1969,37 @@ TennisTodayDesklet.prototype = {
             if (!m.tier) {
                 m.tier = tournamentTier[m.tour + "|" + m.tournament] || "";
             }
+        }
+    },
+
+    // ESPN lags a game or two behind LiveScore, and shows no set at all until
+    // the first game of the match is done; take LiveScore's games when ahead.
+    _preferLivescoreSets: function (teams, sets) {
+        let total = function (list) {
+            let n = 0;
+            for (let i = 0; i < list.length; i++) {
+                n += Number(list[i].value) || 0;
+            }
+            return n;
+        };
+        let espnTotal = 0;
+        let lsTotal = 0;
+        for (let t = 0; t < teams.length; t++) {
+            let ls = sets[_nameKey(teams[t].name)];
+            if (!ls) {
+                return;
+            }
+            espnTotal += total(teams[t].linescores || []);
+            lsTotal += total(ls);
+        }
+        let empty = teams.every(function (t) { return !(t.linescores || []).length; });
+        if (!empty && lsTotal <= espnTotal) {
+            return;
+        }
+        for (let t = 0; t < teams.length; t++) {
+            teams[t].linescores = sets[_nameKey(teams[t].name)].map(function (ls) {
+                return { value: ls.value, tiebreak: ls.tiebreak, winner: false };
+            });
         }
     },
 
