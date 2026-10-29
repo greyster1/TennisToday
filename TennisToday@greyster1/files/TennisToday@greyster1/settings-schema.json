@@ -107,7 +107,7 @@
     "show-tier-other": {
         "type": "switch",
         "default": true,
-        "description": "Show 125, Challenger and unrated events"
+        "description": "Show 125 and other events"
     },
     "refresh-seconds": {
         "type": "spinbutton",
