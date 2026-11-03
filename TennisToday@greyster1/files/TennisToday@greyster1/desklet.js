@@ -1891,7 +1891,16 @@ TennisTodayDesklet.prototype = {
             this._httpSession = null;
         }
         if (this.settings) {
+            // Cinnamon fades a reloaded desklet out before calling this, by which
+            // time the new copy has registered. finalize() clears that entry
+            // whoever owns it, which silences the new copy's settings for good.
+            let manager = Main.settingsManager;
+            let id = this.settings.instanceId;
+            let live = manager && manager.uuids[UUID] ? manager.uuids[UUID][id] : null;
             this.settings.finalize();
+            if (live && live !== this.settings) {
+                manager.register(UUID, id, live);
+            }
             this.settings = null;
         }
         this._matchActors = {};
