@@ -32,6 +32,20 @@ than stops.
 
 More detail on settings is in [TennisToday@greyster1/README.md](TennisToday@greyster1/README.md).
 
+## Disclaimer
+
+TennisToday is an independent, free, non-commercial project. It is not
+affiliated with, endorsed by, or sponsored by LiveScore, ESPN, the ATP, the WTA,
+the ITF or any tournament. All names and trademarks belong to their owners.
+
+TennisToday does not host, bundle or redistribute any score data. Each user's
+machine fetches it directly from LiveScore and ESPN, using endpoints those
+companies have not published for third-party use. Those providers' terms of use
+apply to that access, and you are responsible for following them. The data may
+be restricted, blocked or changed at any time, and is provided as is, with no
+guarantee of accuracy or availability. Do not use this software for commercial
+purposes, such as a paid product or a service built on this data.
+
 ## License
 
 [GPL-3.0-or-later](TennisToday@greyster1/LICENSE)
